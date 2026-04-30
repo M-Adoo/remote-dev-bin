@@ -8,23 +8,23 @@
 
   outputs = { self, nixpkgs, flake-utils }:
     let
-      version = "0.2.3";
+      version = "0.2.4";
       binaries = {
         x86_64-linux = {
           url = "https://github.com/M-Adoo/remote-dev-bin/releases/download/v${version}/remote-dev-x86_64-linux.tar.gz";
-          hash = "sha256-gqCr+r2QzbH6QMkpwG3vsoZ60vQUpVznMg/iNmiMMXo=";
+          hash = "sha256-l1E//cvm91GgSs6cuWY6qzEM8NqatfjGhYpdoCEMS/w=";
         };
         aarch64-linux = {
           url = "https://github.com/M-Adoo/remote-dev-bin/releases/download/v${version}/remote-dev-aarch64-linux.tar.gz";
-          hash = "sha256-HzRAnDqS6N0VrpcS/Pot/QxyqOONZb3iE60gBwAEzm4=";
+          hash = "sha256-8NtczMQGda//QTwdZrhu7z7ngnQVxvXP7jMWQT1A+fk=";
         };
         x86_64-darwin = {
           url = "https://github.com/M-Adoo/remote-dev-bin/releases/download/v${version}/remote-dev-x86_64-darwin.tar.gz";
-          hash = "sha256-11NCiKtlEReou/kwfl2QGtXwRwupirJhId5JABm4NlU=";
+          hash = "sha256-NQ/x4+HjOa3UF6qf9fAy12tw75gc/4K1egoHUeTtGJ4=";
         };
         aarch64-darwin = {
           url = "https://github.com/M-Adoo/remote-dev-bin/releases/download/v${version}/remote-dev-aarch64-darwin.tar.gz";
-          hash = "sha256-cYpgSd1MdjmxXRL/QFV5MfHNrFEIy9/ISLfo6855ep4=";
+          hash = "sha256-nXlezuuNxGZvJ2AkKv7NuC7tcZOKysAXtAEFB5jGqu0=";
         };
       };
     in
