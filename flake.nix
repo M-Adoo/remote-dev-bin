@@ -10,10 +10,10 @@
 
   outputs = { self, nixpkgs, flake-utils, disko }:
     let
-      version = "0.2.4-host-service-test.20260518T165445Z-g08db1af299f4-dirty";
+      version = "0.2.4-host-service-test.20260518T165837Z-g08db1af299f4-dirty";
 
       hostArtifacts = {
-        host_config_id = "remote-dev-nixos-host-v2";
+        host_config_id = "remote-dev-nixos-host-v3";
         disko_layout_id = "single-disk-efi-ext4-v1";
         inherit version;
       };
