@@ -10,7 +10,7 @@
 
   outputs = { self, nixpkgs, flake-utils, disko }:
     let
-      version = "0.2.4-host-service-test.20260518T094550Z-ge38384eecb2a-dirty";
+      version = "0.2.4-host-service-test.20260518T165445Z-g08db1af299f4-dirty";
 
       hostArtifacts = {
         host_config_id = "remote-dev-nixos-host-v2";
@@ -520,6 +520,10 @@
           services.openssh.settings.PasswordAuthentication = false;
           services.openssh.settings.KbdInteractiveAuthentication = false;
           services.openssh.settings.PermitRootLogin = "prohibit-password";
+
+          networking.firewall.allowedUDPPortRanges = [
+            { from = 60000; to = 61000; }
+          ];
 
           users.groups."remote-dev-lease" = {};
           nix.settings.trusted-users = [ "root" "@remote-dev-lease" ];
