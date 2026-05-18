@@ -1,0 +1,10 @@
+{
+  "channel": "host-service-test",
+  "hostctrl_tarball": "remote-dev-hostctrl-x86_64-linux.tar.gz",
+  "published_at": "2026-05-18T09:45:50Z",
+  "source_dirty": true,
+  "source_head_sha": "e38384eecb2ad1a35aa20ee6b404631a92313e14",
+  "source_repo": "M-Adoo/remote-dev",
+  "source_version": "0.2.4",
+  "test_version": "0.2.4-host-service-test.20260518T094550Z-ge38384eecb2a-dirty"
+}
