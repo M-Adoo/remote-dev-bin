@@ -10,7 +10,7 @@
 
   outputs = { self, nixpkgs, flake-utils, disko }:
     let
-      version = "0.2.4-host-service-test.20260520T022334Z-ge09b33b5623e-dirty";
+      version = "0.2.4-host-service-test.20260520T024821Z-ge09b33b5623e-dirty";
 
       hostArtifacts = {
         host_config_id = "remote-dev-nixos-host-v3";
@@ -458,6 +458,7 @@
                 pkgs.jq
                 pkgs.nix
                 pkgs.nixos-install-tools
+                pkgs.util-linux
                 disko.packages.${"x86_64-linux"}.disko
                 takeoverRunner
               ];
