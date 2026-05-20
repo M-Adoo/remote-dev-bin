@@ -10,7 +10,7 @@
 
   outputs = { self, nixpkgs, flake-utils, disko }:
     let
-      version = "0.2.4-host-service-test.20260520T041530Z-ge09b33b5623e-dirty";
+      version = "0.2.4-host-service-test.20260520T041912Z-ge09b33b5623e-dirty";
 
       hostArtifacts = {
         host_config_id = "remote-dev-nixos-host-v3";
@@ -392,14 +392,14 @@
             }
 
             install_nixos() {
-  nixos-install --root /mnt --flake "$CONFIG_DIR#remote-dev-host" --no-root-passwd --no-bootloader
-  log "installing boot loader with explicit target system PATH"
-  ln -sfn /proc/mounts /mnt/etc/mtab
-  export mountPoint=/mnt
-  # shellcheck disable=SC2016
-  nixos-enter --root /mnt -c '
-    set -e
-    export PATH=/nix/var/nix/profiles/system/sw/bin:/nix/var/nix/profiles/system/sw/sbin:$PATH
+              nixos-install --root /mnt --flake "$CONFIG_DIR#remote-dev-host" --no-root-passwd --no-bootloader
+              log "installing boot loader with explicit target system PATH"
+              ln -sfn /proc/mounts /mnt/etc/mtab
+              export mountPoint=/mnt
+              # shellcheck disable=SC2016
+              nixos-enter --root /mnt -c '
+                set -e
+                export PATH=/nix/var/nix/profiles/system/sw/bin:/nix/var/nix/profiles/system/sw/sbin:$PATH
                 hash -r
                 mount --rbind --mkdir / "$mountPoint"
                 mount --make-rslave "$mountPoint"
