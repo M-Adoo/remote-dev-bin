@@ -10,7 +10,7 @@
 
   outputs = { self, nixpkgs, flake-utils, disko }:
     let
-      version = "0.2.4-host-service-test.20260518T165837Z-g08db1af299f4-dirty";
+      version = "0.2.4-host-service-test.20260520T015756Z-ge09b33b5623e-dirty";
 
       hostArtifacts = {
         host_config_id = "remote-dev-nixos-host-v3";
@@ -93,7 +93,7 @@
             report_failure() {
               status="$?"
               if [ "$status" -ne 0 ]; then
-                detail="$(tail -n 40 "$LOG_FILE" 2>/dev/null | tr '\r\n' '  ' | cut -c1-480 || true)"
+                detail="$(tail -n 80 "$LOG_FILE" 2>/dev/null | tr '\r\n' '  ' | tail -c 480 || true)"
                 [ -n "$detail" ] || detail="exit status: $status"
                 log "FAILED during phase: $CURRENT_PHASE"
                 log "exit status: $status"
