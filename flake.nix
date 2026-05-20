@@ -10,7 +10,7 @@
 
   outputs = { self, nixpkgs, flake-utils, disko }:
     let
-      version = "0.2.4-host-service-test.20260520T015756Z-ge09b33b5623e-dirty";
+      version = "0.2.4-host-service-test.20260520T022334Z-ge09b33b5623e-dirty";
 
       hostArtifacts = {
         host_config_id = "remote-dev-nixos-host-v3";
@@ -540,6 +540,7 @@
             pkgs.mosh
             pkgs.openssh
             pkgs.systemd
+            pkgs.util-linux
             hostctrlPackage
           ];
 
