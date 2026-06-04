@@ -12,19 +12,19 @@
       binaries = {
         x86_64-linux = {
           url = "https://github.com/M-Adoo/remote-dev-bin/releases/download/v${version}/remote-dev-x86_64-linux.tar.gz";
-          hash = "sha256-l0QrQmTWhKMObHxugsLAbK0BFysYf8R+6lSXcwj/700=";
+          hash = "sha256-qC7ytTZG3LasiPSEKK7E1Jda4m15exmgjWr/bzk2O/Q=";
         };
         aarch64-linux = {
           url = "https://github.com/M-Adoo/remote-dev-bin/releases/download/v${version}/remote-dev-aarch64-linux.tar.gz";
-          hash = "sha256-d5lNLB5rmFtSJkjz47v0GkdbwfuYRE2bUBJQuEEejHs=";
+          hash = "sha256-t/B43cOWXFwbil9DsnnhHOje5wO5OKHVfbaCLz0veM8=";
         };
         x86_64-darwin = {
           url = "https://github.com/M-Adoo/remote-dev-bin/releases/download/v${version}/remote-dev-x86_64-darwin.tar.gz";
-          hash = "sha256-+T7jJUqP59oXp5D4WH/rnj65thKO0KaiEzocS48jRRQ=";
+          hash = "sha256-BEX9oBhS2QhLB1vjLE0UQCLiTcZCBHlKkX6B+uhy+80=";
         };
         aarch64-darwin = {
           url = "https://github.com/M-Adoo/remote-dev-bin/releases/download/v${version}/remote-dev-aarch64-darwin.tar.gz";
-          hash = "sha256-9sbY4YNmlE0S4jzWPoOgzzux6/UgKeWA6QLW8Nqopgg=";
+          hash = "sha256-p1V1KwdkPvQ7Iu96P5fQMGE6PJo+/MwDr6g9Q1CW2XM=";
         };
       };
     in
