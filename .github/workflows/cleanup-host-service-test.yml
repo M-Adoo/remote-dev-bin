@@ -17,12 +17,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: publisher
+          fetch-depth: 0
 
       - name: Checkout host-service-test branch
         uses: actions/checkout@v4
         with:
           ref: host-service-test
           path: published
+          fetch-depth: 0
 
       - name: Retain latest generated test tree
         run: |
