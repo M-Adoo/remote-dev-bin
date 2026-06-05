@@ -14,6 +14,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -21,11 +22,13 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import urllib.error
+import urllib.request
 
 
 REPO = "M-Adoo/remote-dev-bin"
 SOURCE_REPO = "M-Adoo/remote-dev"
-HOST_CONFIG_ID = "remote-dev-nixos-host-v3"
+HOST_CONFIG_ID = "remote-dev-nixos-host-v4"
 IMAGE_CONTRACT_ID = "remote-dev-cloud-host-v1"
 HOST_IMAGE_SPEC_SCHEMA_VERSION = 4
 HOST_IMAGE_SCHEMA_VERSION = 3
@@ -40,6 +43,18 @@ ARTIFACT_DIR = "artifacts"
 HOST_IMAGE_SPEC_DIR = "host-image-specs"
 DEFAULT_NIXPKGS_REV = "0000000000000000000000000000000000000000"
 GITHUB_MAX_BLOB_BYTES = 100_000_000
+BOOTSTRAP_SOURCE_MAX_BYTES = 5 * 1024 * 1024
+CLOSURE_AUDIT_TOP_NAR_PATHS = 10
+CLOSURE_AUDIT_MARKERS = (
+    "amazon-ssm-agent",
+    "git-doc",
+    "nixos-manual-html",
+    "nix-manual",
+)
+AWS_AMI_INDEX_URL = "https://nixos.github.io/amis/images.json"
+AWS_AMI_PIN_METADATA = "templates/aws-ami-pin.json"
+AWS_AMI_REV_PREFIX_LEN = 12
+NIXOS_AMI_NAME_RE = re.compile(r"^nixos/.+\.([0-9a-f]{12})-(x86_64|aarch64)-linux$")
 
 
 @dataclass(frozen=True)
@@ -86,6 +101,27 @@ class TargetConfig:
     retention_days: int | None
     protected_environment: str | None = None
     confirm_prod: str | None = None
+
+
+@dataclass(frozen=True)
+class AwsAmiPinImage:
+    region: str
+    host_arch: str
+    aws_arch: str
+    name: str
+    image_id: str
+    creation_date: str
+    rev_prefix: str
+
+
+@dataclass(frozen=True)
+class AwsAmiPinSelection:
+    rev_prefix: str
+    latest_creation_date: str
+    sample_names: dict[str, str]
+    regions_by_arch: dict[str, tuple[str, ...]]
+    images_by_arch: dict[str, dict[str, AwsAmiPinImage]]
+    candidate_summary: list[dict[str, Any]]
 
 
 def utc_now() -> str:
@@ -478,7 +514,6 @@ def write_aws_bootstrap_flake(branch_dir: Path, config: TargetConfig, nixpkgs_re
         inherit system;
         modules = [
           remoteDevBin.nixosModules.remote-dev-host
-          remoteDevBin.nixosModules.remote-dev-firstboot-register
           ({{ modulesPath, ... }}: {{
             imports = [ "${{modulesPath}}/virtualisation/amazon-image.nix" ];
             networking.hostName = "remote-dev-host";
@@ -516,6 +551,275 @@ def aws_ami_arch(arch: str) -> str:
     if arch == "aarch64":
         return "arm64"
     raise Fail(f"unsupported host arch {arch}")
+
+
+def aws_ami_host_arch_from_name(name_arch: str) -> str:
+    if name_arch == "x86_64":
+        return "x86_64"
+    if name_arch == "aarch64":
+        return "aarch64"
+    raise Fail(f"unsupported NixOS AMI name arch {name_arch}")
+
+
+def read_json_url(url: str) -> Any:
+    request = urllib.request.Request(url, headers={"User-Agent": "remote-dev-bin-publish"})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        raise Fail(f"fetch {url}: {error}") from error
+
+
+def read_aws_ami_index(images_json: str | None) -> Any:
+    if images_json:
+        return json_load(Path(images_json))
+    return read_json_url(AWS_AMI_INDEX_URL)
+
+
+def aws_ami_index_regions(index: Any) -> tuple[str, ...]:
+    if not isinstance(index, dict):
+        raise Fail("AWS AMI index must be a region object")
+    regions = sorted(
+        region
+        for region, payload in index.items()
+        if isinstance(region, str)
+        and isinstance(payload, dict)
+        and isinstance(payload.get("Images"), list)
+    )
+    if not regions:
+        raise Fail("AWS AMI index has no regions with Images")
+    return tuple(regions)
+
+
+def iter_aws_ami_pin_images(index: Any) -> list[AwsAmiPinImage]:
+    images: list[AwsAmiPinImage] = []
+    for region in aws_ami_index_regions(index):
+        for raw in index[region]["Images"]:
+            if not isinstance(raw, dict):
+                continue
+            name = raw.get("Name")
+            if not isinstance(name, str):
+                continue
+            match = NIXOS_AMI_NAME_RE.match(name)
+            if not match:
+                continue
+            rev_prefix, name_arch = match.groups()
+            host_arch = aws_ami_host_arch_from_name(name_arch)
+            if raw.get("Architecture") != aws_ami_arch(host_arch):
+                continue
+            if raw.get("State") != "available":
+                continue
+            if raw.get("RootDeviceName") != "/dev/xvda":
+                continue
+            image_id = raw.get("ImageId")
+            creation_date = raw.get("CreationDate")
+            if not isinstance(image_id, str) or not isinstance(creation_date, str):
+                continue
+            images.append(
+                AwsAmiPinImage(
+                    region=region,
+                    host_arch=host_arch,
+                    aws_arch=aws_ami_arch(host_arch),
+                    name=name,
+                    image_id=image_id,
+                    creation_date=creation_date,
+                    rev_prefix=rev_prefix,
+                )
+            )
+    if not images:
+        raise Fail("AWS AMI index has no parseable official NixOS AMI names")
+    return images
+
+
+def select_aws_ami_pin(index: Any, host_arches: tuple[str, ...]) -> AwsAmiPinSelection:
+    required_regions = set(aws_ami_index_regions(index))
+    required_arches = tuple(dict.fromkeys(host_arches))
+    by_prefix: dict[str, dict[str, dict[str, AwsAmiPinImage]]] = {}
+    for image in iter_aws_ami_pin_images(index):
+        if image.host_arch not in required_arches:
+            continue
+        region_images = by_prefix.setdefault(image.rev_prefix, {}).setdefault(image.host_arch, {})
+        existing = region_images.get(image.region)
+        if existing is None or image.creation_date > existing.creation_date:
+            region_images[image.region] = image
+
+    candidates: list[dict[str, Any]] = []
+    complete: list[tuple[str, dict[str, dict[str, AwsAmiPinImage]], str]] = []
+    for rev_prefix, by_arch in by_prefix.items():
+        missing_by_arch = {
+            arch: sorted(required_regions - set(by_arch.get(arch, {})))
+            for arch in required_arches
+        }
+        latest_creation_date = max(
+            (
+                image.creation_date
+                for region_images in by_arch.values()
+                for image in region_images.values()
+            ),
+            default="",
+        )
+        candidates.append(
+            {
+                "rev_prefix": rev_prefix,
+                "latest_creation_date": latest_creation_date,
+                "coverage": {
+                    arch: len(by_arch.get(arch, {}))
+                    for arch in required_arches
+                },
+                "missing_regions": missing_by_arch,
+            }
+        )
+        if all(not missing for missing in missing_by_arch.values()):
+            complete.append((rev_prefix, by_arch, latest_creation_date))
+
+    candidates.sort(key=lambda candidate: (candidate["latest_creation_date"], candidate["rev_prefix"]), reverse=True)
+    if not complete:
+        summary = json.dumps(candidates[:8], indent=2, sort_keys=True)
+        raise Fail(
+            "no official NixOS AWS AMI rev prefix has full region coverage for "
+            f"{', '.join(required_arches)} across {len(required_regions)} regions; "
+            f"top candidates:\n{summary}"
+        )
+
+    complete.sort(key=lambda item: (item[2], item[0]), reverse=True)
+    rev_prefix, by_arch, latest_creation_date = complete[0]
+    return AwsAmiPinSelection(
+        rev_prefix=rev_prefix,
+        latest_creation_date=latest_creation_date,
+        sample_names={
+            arch: sorted(by_arch[arch].values(), key=lambda image: image.creation_date, reverse=True)[0].name
+            for arch in required_arches
+        },
+        regions_by_arch={
+            arch: tuple(sorted(by_arch[arch]))
+            for arch in required_arches
+        },
+        images_by_arch=by_arch,
+        candidate_summary=candidates[:8],
+    )
+
+
+def resolve_nixpkgs_full_rev(rev_prefix: str) -> str:
+    if len(rev_prefix) != AWS_AMI_REV_PREFIX_LEN:
+        raise Fail(f"expected {AWS_AMI_REV_PREFIX_LEN} character AMI rev prefix, got {rev_prefix}")
+    url = f"https://api.github.com/repos/NixOS/nixpkgs/commits/{rev_prefix}"
+    data = read_json_url(url)
+    sha = data.get("sha") if isinstance(data, dict) else None
+    if not isinstance(sha, str) or len(sha) != 40 or not sha.startswith(rev_prefix):
+        raise Fail(f"GitHub did not resolve {rev_prefix} to a matching full nixpkgs commit")
+    return sha
+
+
+def is_full_commit_sha(value: str) -> bool:
+    return len(value) == 40 and all(byte in "0123456789abcdefABCDEF" for byte in value)
+
+
+def nixpkgs_locked_metadata(full_rev: str) -> dict[str, Any]:
+    raw = run(
+        [
+            "nix",
+            "flake",
+            "metadata",
+            "--json",
+            "--extra-experimental-features",
+            "nix-command",
+            "--extra-experimental-features",
+            "flakes",
+            f"github:NixOS/nixpkgs/{full_rev}",
+        ],
+        capture=True,
+    )
+    try:
+        locked = json.loads(raw)["locked"]
+    except (KeyError, TypeError, json.JSONDecodeError) as error:
+        raise Fail(f"could not read nixpkgs lock metadata for {full_rev}: {error}") from error
+    expected = {
+        "lastModified": int,
+        "narHash": str,
+        "owner": str,
+        "repo": str,
+        "rev": str,
+        "type": str,
+    }
+    for key, kind in expected.items():
+        if not isinstance(locked.get(key), kind):
+            raise Fail(f"nixpkgs metadata for {full_rev} is missing {key}")
+    if locked["owner"] != "NixOS" or locked["repo"] != "nixpkgs" or locked["rev"] != full_rev:
+        raise Fail(f"nixpkgs metadata resolved unexpected repo/rev: {locked}")
+    return {key: locked[key] for key in expected}
+
+
+def update_template_nixpkgs_lock(repo_root: Path, full_rev: str) -> None:
+    lock_path = repo_root / "templates/flake.lock"
+    data = json_load(lock_path)
+    try:
+        data["nodes"]["nixpkgs"]["locked"] = nixpkgs_locked_metadata(full_rev)
+    except KeyError as error:
+        raise Fail(f"{lock_path}: missing nixpkgs lock node") from error
+    json_dump(lock_path, data)
+
+
+def aws_ami_pin_metadata(
+    config: TargetConfig, selection: AwsAmiPinSelection, full_rev: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "source_url": AWS_AMI_INDEX_URL,
+        "target": config.name,
+        "target_branch": config.branch,
+        "host_arches": list(config.host_arches),
+        "aws_arches": {arch: aws_ami_arch(arch) for arch in config.host_arches},
+        "ami_names": selection.sample_names,
+        "rev_prefix": selection.rev_prefix,
+        "full_rev": full_rev,
+        "latest_creation_date": selection.latest_creation_date,
+        "region_count": len(next(iter(selection.regions_by_arch.values()))),
+        "regions_by_arch": {
+            arch: list(regions)
+            for arch, regions in selection.regions_by_arch.items()
+        },
+        "candidate_summary": selection.candidate_summary,
+        "generated_at": utc_now(),
+    }
+
+
+def assert_aws_ami_pin_metadata(repo_root: Path) -> dict[str, Any]:
+    metadata_path = repo_root / AWS_AMI_PIN_METADATA
+    if not metadata_path.is_file():
+        raise Fail(f"missing AWS AMI pin metadata {AWS_AMI_PIN_METADATA}")
+    metadata = json_load(metadata_path)
+    full_rev = metadata.get("full_rev")
+    rev_prefix = metadata.get("rev_prefix")
+    if not isinstance(full_rev, str) or not isinstance(rev_prefix, str):
+        raise Fail("AWS AMI pin metadata must include full_rev and rev_prefix")
+    if not is_full_commit_sha(full_rev):
+        raise Fail("AWS AMI pin metadata full_rev must be a full 40 character git SHA")
+    if len(rev_prefix) != AWS_AMI_REV_PREFIX_LEN or not full_rev.startswith(rev_prefix):
+        raise Fail("AWS AMI pin metadata rev_prefix must match full_rev")
+    lock_rev = read_nixpkgs_rev(repo_root / "__missing_branch__", repo_root)
+    if lock_rev != full_rev:
+        raise Fail(
+            "templates/flake.lock nixpkgs rev does not match AWS AMI pin metadata: "
+            f"{lock_rev} != {full_rev}"
+        )
+    ami_names = metadata.get("ami_names")
+    if not isinstance(ami_names, dict) or not ami_names:
+        raise Fail("AWS AMI pin metadata must include ami_names")
+    for arch, name in ami_names.items():
+        if not isinstance(arch, str) or not isinstance(name, str):
+            raise Fail("AWS AMI pin metadata ami_names must map arch to name")
+        match = NIXOS_AMI_NAME_RE.match(name)
+        if not match or match.group(1) != rev_prefix:
+            raise Fail(f"AWS AMI pin metadata name {name!r} does not match rev prefix {rev_prefix}")
+    return metadata
+
+
+def pin_arch_selection(target: str, arch: str | None) -> str:
+    if arch:
+        return arch
+    if target == "host-service-test":
+        return "aarch64"
+    return "both"
 
 
 def placeholder_store_path(system: str) -> str:
@@ -638,6 +942,8 @@ def maybe_realize_bootstrap_and_cache(
                     "nix-command",
                     "path-info",
                     "--json",
+                    "--sigs",
+                    "--size",
                     "--recursive",
                     output,
                 ],
@@ -684,6 +990,99 @@ def write_signed_nix_cache(
         write_narinfo(branch_dir, cache_dir, path, key_name)
 
 
+def audit_bootstrap_closures(branch_dir: Path, config: TargetConfig) -> list[dict[str, Any]]:
+    audits = []
+    for arch in config.host_arches:
+        system = f"{arch}-linux"
+        closure_path = branch_dir / f"cloud/aws-bootstrap-closure-{system}.json"
+        audit = audit_closure_manifest(branch_dir / NIX_CACHE_DIR, json_load(closure_path))
+        audit["system"] = system
+        audits.append(audit)
+        marker_report = " ".join(
+            f"{marker}={'present' if audit['marker_presence'][marker] else 'absent'}"
+            for marker in CLOSURE_AUDIT_MARKERS
+        )
+        top_nar_report = ";".join(
+            f"{entry['nar_size']}:{entry['path']}"
+            for entry in audit["top_nar_size_paths"]
+        )
+        print(
+            "closure audit "
+            f"system={system} "
+            f"paths={audit['closure_paths']} "
+            f"unsigned={audit['unsigned_paths']} "
+            f"cache_compressed_bytes={audit['cache_compressed_bytes']} "
+            f"{marker_report} "
+            f"top_nar_size={top_nar_report}"
+        )
+    return audits
+
+
+def audit_closure_manifest(cache_dir: Path, closure: dict[str, Any]) -> dict[str, Any]:
+    paths = iter_nix_path_info(closure.get("paths"))
+    missing_narinfo = []
+    large_sources = []
+    unsigned_count = 0
+    marker_presence = dict.fromkeys(CLOSURE_AUDIT_MARKERS, False)
+    top_nar_size_paths = []
+    for path, info in paths:
+        name = store_path_name(path)
+        nar_size = nix_path_size(info)
+        top_nar_size_paths.append({"path": path, "nar_size": nar_size})
+        for marker in CLOSURE_AUDIT_MARKERS:
+            if marker in name:
+                marker_presence[marker] = True
+        if large_source_path(path, info):
+            large_sources.append(f"{path} ({nix_path_size(info)} bytes)")
+        if not cache_nixos_signed_path(info):
+            unsigned_count += 1
+            if not narinfo_path(cache_dir, path).is_file():
+                missing_narinfo.append(path)
+    if large_sources:
+        raise Fail(
+            "bootstrap closure contains source paths over "
+            f"{BOOTSTRAP_SOURCE_MAX_BYTES} bytes: {', '.join(large_sources)}"
+        )
+    if missing_narinfo:
+        raise Fail(
+            "unsigned bootstrap closure paths missing remote-dev-bin narinfo: "
+            + ", ".join(missing_narinfo)
+        )
+    top_nar_size_paths.sort(key=lambda entry: entry["nar_size"], reverse=True)
+    return {
+        "closure_paths": len(paths),
+        "unsigned_paths": unsigned_count,
+        "cache_compressed_bytes": compressed_cache_size(cache_dir),
+        "top_nar_size_paths": top_nar_size_paths[:CLOSURE_AUDIT_TOP_NAR_PATHS],
+        "marker_presence": marker_presence,
+    }
+
+
+def large_source_path(path: str, info: dict[str, Any]) -> bool:
+    _, _, name = store_path_name(path).partition("-")
+    return name.endswith("-source") and nix_path_size(info) > BOOTSTRAP_SOURCE_MAX_BYTES
+
+
+def nix_path_size(info: dict[str, Any]) -> int:
+    for key in ("narSize", "nar_size", "size"):
+        value = info.get(key)
+        if isinstance(value, int):
+            return value
+    return 0
+
+
+def narinfo_path(cache_dir: Path, store_path: str) -> Path:
+    store_hash = store_path_name(store_path).split("-", 1)[0]
+    return cache_dir / f"{store_hash}.narinfo"
+
+
+def compressed_cache_size(cache_dir: Path) -> int:
+    nar_dir = cache_dir / "nar"
+    if not nar_dir.is_dir():
+        return 0
+    return sum(path.stat().st_size for path in nar_dir.glob("*.nar.xz") if path.is_file())
+
+
 def remote_dev_bin_cache_roots(branch_dir: Path, toplevels: list[str]) -> set[str]:
     roots = set(toplevels)
     for toplevel in toplevels:
@@ -694,6 +1093,8 @@ def remote_dev_bin_cache_roots(branch_dir: Path, toplevels: list[str]) -> set[st
                 "nix-command",
                 "path-info",
                 "--json",
+                "--sigs",
+                "--size",
                 "--recursive",
                 toplevel,
             ],
@@ -962,6 +1363,11 @@ def cmd_render_tree(args: argparse.Namespace) -> None:
         branch_dir, config, args.nix_cache_signing_key_file, trusted_key
     )
     write_host_specs(branch_dir, config, nixpkgs_rev, trusted_key, toplevels)
+    closure_audits = (
+        audit_bootstrap_closures(branch_dir, config)
+        if args.nix_cache_signing_key_file
+        else []
+    )
     write_cloud_image_metadata(
         branch_dir, args, config, image_manifests[0] if image_manifests else None
     )
@@ -985,6 +1391,7 @@ def cmd_render_tree(args: argparse.Namespace) -> None:
         "host_service_image": "cloud/host-service-image.json"
         if (branch_dir / "cloud/host-service-image.json").is_file()
         else None,
+        "closure_audit": closure_audits,
         "retention": {
             "max_commits": config.retention_commits,
             "max_days": config.retention_days,
@@ -1047,6 +1454,46 @@ def cmd_validate_tree(args: argparse.Namespace) -> None:
     validate_tree(Path(args.branch_dir), target_config(args.target, args.arch))
 
 
+def cmd_refresh_aws_ami_pin(args: argparse.Namespace) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    config = target_config(args.target, pin_arch_selection(args.target, args.arch))
+    index = read_aws_ami_index(args.images_json)
+    selection = select_aws_ami_pin(index, config.host_arches)
+    full_rev = resolve_nixpkgs_full_rev(selection.rev_prefix)
+    update_template_nixpkgs_lock(repo_root, full_rev)
+    metadata = aws_ami_pin_metadata(config, selection, full_rev)
+    json_dump(repo_root / AWS_AMI_PIN_METADATA, metadata)
+    assert_aws_ami_pin_metadata(repo_root)
+    print(
+        "AWS AMI pin refreshed "
+        f"target={config.name} "
+        f"arch={','.join(config.host_arches)} "
+        f"prefix={selection.rev_prefix} "
+        f"full_rev={full_rev} "
+        f"regions={metadata['region_count']}"
+    )
+
+
+def cmd_verify_aws_ami_pin(args: argparse.Namespace) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    metadata = assert_aws_ami_pin_metadata(repo_root)
+    config = target_config(args.target, pin_arch_selection(args.target, args.arch))
+    index = read_aws_ami_index(args.images_json)
+    selection = select_aws_ami_pin(index, config.host_arches)
+    if selection.rev_prefix != metadata["rev_prefix"]:
+        raise Fail(
+            "AWS AMI pin metadata is stale for current full-coverage official AMI index: "
+            f"{metadata['rev_prefix']} != {selection.rev_prefix}"
+        )
+    print(
+        "AWS AMI pin verified "
+        f"target={config.name} "
+        f"arch={','.join(config.host_arches)} "
+        f"prefix={selection.rev_prefix} "
+        f"full_rev={metadata['full_rev']}"
+    )
+
+
 def cmd_cleanup_test_branch(args: argparse.Namespace) -> None:
     branch_dir = Path(args.branch_dir)
     config = target_config("host-service-test", "both")
@@ -1102,6 +1549,30 @@ def fake_artifact(root: Path, manifest: dict[str, str]) -> None:
     json_dump(root / f"{name}.build.json", data)
 
 
+def required_index(text: str, marker: str, context: str) -> int:
+    index = text.find(marker)
+    if index < 0:
+        raise Fail(f"{context} is missing {marker!r}")
+    return index
+
+
+def assert_publish_workflow_order(name: str, workflow: str, branch_push: str) -> None:
+    push_image = required_index(workflow, "- name: Push image", name)
+    render_tree = required_index(workflow, "publish.py render-tree", name)
+    push_branch = required_index(workflow, branch_push, name)
+    deploy_step = required_index(workflow, "- name: Deploy Cloud Run", name)
+    gcloud_deploy = required_index(workflow, "gcloud run deploy", name)
+    if not push_image < render_tree < push_branch < deploy_step < gcloud_deploy:
+        raise Fail(
+            f"{name} must push the image, render and push the target branch, "
+            "then deploy Cloud Run"
+        )
+    if "steps.deploy.outputs" in workflow:
+        raise Fail(f"{name} must render from the image digest step, not a deploy step")
+    if "- name: Push image and deploy Cloud Run" in workflow:
+        raise Fail(f"{name} must not deploy Cloud Run before the target branch push")
+
+
 def assert_workflows(repo_root: Path) -> None:
     test = (repo_root / ".github/workflows/publish-test.yml").read_text()
     release = (repo_root / ".github/workflows/publish-release.yml").read_text()
@@ -1122,6 +1593,12 @@ def assert_workflows(repo_root: Path) -> None:
         raise Fail("test build jobs must not receive contents write")
     if "git add -A" not in test or "git add -A" not in release:
         raise Fail("publish workflows must stage generated deletions with git add -A")
+    assert_publish_workflow_order(
+        "publish-test", test, 'git push --force origin "$TARGET_BRANCH"'
+    )
+    assert_publish_workflow_order(
+        "publish-release", release, 'git push origin "$TARGET_BRANCH"'
+    )
 
 
 def cmd_self_test(_: argparse.Namespace) -> None:
@@ -1134,6 +1611,79 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         raise Fail("test aarch64 target did not narrow the matrix")
     if len(build_matrix(release)["include"]) != 6:
         raise Fail("release matrix must include four remote-dev binaries and two hostctrl binaries")
+    def fake_ami(name: str, arch: str, image_id: str, creation_date: str) -> dict[str, str]:
+        return {
+            "Name": name,
+            "Architecture": arch,
+            "ImageId": image_id,
+            "CreationDate": creation_date,
+            "State": "available",
+            "RootDeviceName": "/dev/xvda",
+        }
+
+    full_coverage_index = {
+        "us-a-1": {
+            "Images": [
+                fake_ami("nixos/25.11.1.111111111111-aarch64-linux", "arm64", "ami-arm-old-a", "2026-01-01T00:00:00.000Z"),
+                fake_ami("nixos/25.11.1.111111111111-x86_64-linux", "x86_64", "ami-x86-old-a", "2026-01-01T00:00:01.000Z"),
+                fake_ami("nixos/25.11.2.222222222222-aarch64-linux", "arm64", "ami-arm-new-a", "2026-02-01T00:00:00.000Z"),
+                fake_ami("nixos/25.11.2.222222222222-x86_64-linux", "x86_64", "ami-x86-new-a", "2026-02-01T00:00:01.000Z"),
+            ]
+        },
+        "us-b-1": {
+            "Images": [
+                fake_ami("nixos/25.11.1.111111111111-aarch64-linux", "arm64", "ami-arm-old-b", "2026-01-01T00:00:00.000Z"),
+                fake_ami("nixos/25.11.1.111111111111-x86_64-linux", "x86_64", "ami-x86-old-b", "2026-01-01T00:00:01.000Z"),
+                fake_ami("nixos/25.11.2.222222222222-aarch64-linux", "arm64", "ami-arm-new-b", "2026-02-01T00:00:00.000Z"),
+                fake_ami("nixos/25.11.2.222222222222-x86_64-linux", "x86_64", "ami-x86-new-b", "2026-02-01T00:00:01.000Z"),
+            ]
+        },
+    }
+    selected_pin = select_aws_ami_pin(full_coverage_index, ("x86_64", "aarch64"))
+    if selected_pin.rev_prefix != "222222222222":
+        raise Fail("AWS AMI pin selection did not choose the latest full-coverage prefix")
+    partial_index = {
+        "us-a-1": {
+            "Images": [
+                fake_ami("nixos/25.11.1.aaaaaaaaaaaa-aarch64-linux", "arm64", "ami-partial-a", "2026-01-01T00:00:00.000Z"),
+            ]
+        },
+        "us-b-1": {
+            "Images": [
+                fake_ami("nixos/25.11.2.bbbbbbbbbbbb-aarch64-linux", "arm64", "ami-partial-b", "2026-02-01T00:00:00.000Z"),
+            ]
+        },
+    }
+    try:
+        select_aws_ami_pin(partial_index, ("aarch64",))
+    except Fail as error:
+        if "full region coverage" not in str(error):
+            raise
+    else:
+        raise Fail("AWS AMI pin selection must fail closed on partial region coverage")
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        json_dump(
+            tmp_root / "templates/flake.lock",
+            {"nodes": {"nixpkgs": {"locked": {"rev": "0" * 40}}}},
+        )
+        json_dump(
+            tmp_root / AWS_AMI_PIN_METADATA,
+            {
+                "full_rev": "1" * 40,
+                "rev_prefix": "1" * AWS_AMI_REV_PREFIX_LEN,
+                "ami_names": {
+                    "aarch64": f"nixos/25.11.1.{'1' * AWS_AMI_REV_PREFIX_LEN}-aarch64-linux"
+                },
+            },
+        )
+        try:
+            assert_aws_ami_pin_metadata(tmp_root)
+        except Fail as error:
+            if "does not match AWS AMI pin metadata" not in str(error):
+                raise
+        else:
+            raise Fail("AWS AMI pin metadata check must reject flake.lock mismatches")
     cache_examples = {
         "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-hostctrl-test": True,
         "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-etc": True,
@@ -1171,6 +1721,79 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         {"signatures": ["cache.nixos.org-1:test"]},
     ):
         raise Fail("cache.nixos.org-signed paths should not be mirrored by default")
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp) / NIX_CACHE_DIR
+        cache_dir.mkdir()
+        unsigned_path = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-test"
+        try:
+            audit_closure_manifest(
+                cache_dir,
+                {"paths": [{"path": unsigned_path, "signatures": [], "narSize": 1024}]},
+            )
+        except Fail as error:
+            if "missing remote-dev-bin narinfo" not in str(error):
+                raise
+        else:
+            raise Fail("closure audit must reject unsigned paths without narinfo")
+        narinfo_path(cache_dir, unsigned_path).write_text("StorePath: test\n")
+        audit = audit_closure_manifest(
+            cache_dir,
+            {"paths": [{"path": unsigned_path, "signatures": [], "narSize": 1024}]},
+        )
+        if audit["closure_paths"] != 1 or audit["unsigned_paths"] != 1:
+            raise Fail("closure audit did not count unsigned paths")
+        marker_audit = audit_closure_manifest(
+            cache_dir,
+            {
+                "paths": [
+                    {
+                        "path": "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-amazon-ssm-agent-3.2.0",
+                        "signatures": ["cache.nixos.org-1:test"],
+                        "narSize": 2048,
+                    },
+                    {
+                        "path": "/nix/store/cccccccccccccccccccccccccccccccc-git-doc-2.51.0",
+                        "signatures": ["cache.nixos.org-1:test"],
+                        "narSize": 8192,
+                    },
+                    {
+                        "path": "/nix/store/dddddddddddddddddddddddddddddddd-nixos-manual-html",
+                        "signatures": ["cache.nixos.org-1:test"],
+                        "narSize": 4096,
+                    },
+                    {
+                        "path": "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-nix-manual",
+                        "signatures": ["cache.nixos.org-1:test"],
+                        "narSize": 1024,
+                    },
+                ]
+            },
+        )
+        for marker in CLOSURE_AUDIT_MARKERS:
+            if not marker_audit["marker_presence"][marker]:
+                raise Fail(f"closure audit did not report marker {marker}")
+        if marker_audit["top_nar_size_paths"][0]["path"] != (
+            "/nix/store/cccccccccccccccccccccccccccccccc-git-doc-2.51.0"
+        ):
+            raise Fail("closure audit did not sort top Nar sizes")
+        try:
+            audit_closure_manifest(
+                cache_dir,
+                {
+                    "paths": [
+                        {
+                            "path": "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-nixpkgs-source",
+                            "signatures": ["cache.nixos.org-1:test"],
+                            "narSize": BOOTSTRAP_SOURCE_MAX_BYTES + 1,
+                        }
+                    ]
+                },
+            )
+        except Fail as error:
+            if "source paths over" not in str(error):
+                raise
+        else:
+            raise Fail("closure audit must reject large source paths")
     if iter_nix_path_info(
         {
             "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-test": {
@@ -1185,6 +1808,7 @@ def cmd_self_test(_: argparse.Namespace) -> None:
     ]:
         raise Fail("unexpected object-shaped nix path-info parsing")
     assert_workflows(repo_root)
+    assert_aws_ami_pin_metadata(repo_root)
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         artifacts = tmp_path / "artifacts"
@@ -1208,6 +1832,32 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             workflow_run_id="1",
         )
         cmd_render_tree(ns)
+        flake = (branch / "flake.nix").read_text()
+        bootstrap_flake = (branch / AWS_BOOTSTRAP_FLAKE).read_text()
+        for expected in [
+            'host_config_id = "remote-dev-nixos-host-v4";',
+            "remoteDevPackage",
+            "pkgs.mosh",
+            "pkgs.gitMinimal",
+            "documentation.enable = false;",
+            "documentation.nixos.enable = false;",
+            "documentation.man.enable = false;",
+            "documentation.man.man-db.enable = false;",
+            "documentation.info.enable = false;",
+            "documentation.doc.enable = false;",
+            "services.amazon-ssm-agent.enable = lib.mkForce false;",
+            "nixpkgs.flake.setFlakeRegistry = false;",
+            "nixpkgs.flake.setNixPath = false;",
+            "nix.registry = lib.mkForce { };",
+            "nix.nixPath = lib.mkForce [ ];",
+            "nix.channel.enable = false;",
+        ]:
+            if expected not in flake:
+                raise Fail(f"rendered flake is missing {expected}")
+        if any(line.strip() == "pkgs.git" for line in flake.splitlines()):
+            raise Fail("host baseline must use pkgs.gitMinimal instead of pkgs.git")
+        if "remoteDevBin.nixosModules.remote-dev-firstboot-register" in bootstrap_flake:
+            raise Fail("AWS provider bootstrap flake must not import firstboot register module")
         if (branch / "host-image-specs/x86_64.json").exists():
             raise Fail("aarch64-only publish rendered x86_64 host spec")
     print("self-test passed")
@@ -1266,6 +1916,18 @@ def parser() -> argparse.ArgumentParser:
     v.add_argument("--arch", choices=["x86_64", "aarch64", "both"], default="both")
     v.add_argument("--branch-dir", required=True)
     v.set_defaults(func=cmd_validate_tree)
+
+    pin = sub.add_parser("refresh-aws-ami-pin")
+    pin.add_argument("--target", choices=["release", "host-service-test"], default="host-service-test")
+    pin.add_argument("--arch", choices=["x86_64", "aarch64", "both"])
+    pin.add_argument("--images-json")
+    pin.set_defaults(func=cmd_refresh_aws_ami_pin)
+
+    verify_pin = sub.add_parser("verify-aws-ami-pin")
+    verify_pin.add_argument("--target", choices=["release", "host-service-test"], default="host-service-test")
+    verify_pin.add_argument("--arch", choices=["x86_64", "aarch64", "both"])
+    verify_pin.add_argument("--images-json")
+    verify_pin.set_defaults(func=cmd_verify_aws_ami_pin)
 
     c = sub.add_parser("cleanup-test-branch")
     c.add_argument("--branch-dir", required=True)

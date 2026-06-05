@@ -250,27 +250,14 @@ jobs:
           printf '%s' "$NIX_CACHE_SIGNING_KEY" > "$RUNNER_TEMP/nix-cache-signing-key"
           chmod 600 "$RUNNER_TEMP/nix-cache-signing-key"
 
-      - name: Push image and deploy Cloud Run
-        id: deploy
+      - name: Push image
+        id: image
         run: |
           IMAGE="$(cat downloaded/host-service-image-ref.txt)"
           zstd -d -c downloaded/host-service-linux-amd64.tar.zst | docker load
           docker push "$IMAGE"
           DEPLOYED_IMAGE="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")"
           DIGEST="${DEPLOYED_IMAGE#*@}"
-          SERVICE_ACCOUNT="remote-dev-host-service@$TARGET_PROJECT.iam.gserviceaccount.com"
-          gcloud run deploy "$SERVICE" \
-            --image "$DEPLOYED_IMAGE" \
-            --region "$REGION" \
-            --project "$TARGET_PROJECT" \
-            --service-account "$SERVICE_ACCOUNT" \
-            --set-env-vars "REMOTE_DEV_HOST_SERVICE_CONFIG=/app/config/host-service-test.toml" \
-            --cpu 1 \
-            --concurrency 5 \
-            --timeout 600 \
-            --max-instances 20 \
-            --allow-unauthenticated \
-            --quiet
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
           echo "deployed_image=$DEPLOYED_IMAGE" >> "$GITHUB_OUTPUT"
@@ -286,9 +273,9 @@ jobs:
             --source-sha "${{ needs.resolve-source.outputs.source_sha }}" \
             --nix-cache-public-key "${{ vars.REMOTE_DEV_NIX_CACHE_PUBLIC_KEY }}" \
             --nix-cache-signing-key-file "$RUNNER_TEMP/nix-cache-signing-key" \
-            --image "${{ steps.deploy.outputs.image }}" \
-            --image-digest "${{ steps.deploy.outputs.digest }}" \
-            --deployed-image "${{ steps.deploy.outputs.deployed_image }}" \
+            --image "${{ steps.image.outputs.image }}" \
+            --image-digest "${{ steps.image.outputs.digest }}" \
+            --deployed-image "${{ steps.image.outputs.deployed_image }}" \
             --workflow-run-id "$GITHUB_RUN_ID"
 
       - name: Commit target branch
@@ -310,6 +297,22 @@ jobs:
       - name: Push target branch
         working-directory: published
         run: git push --force origin "$TARGET_BRANCH"
+
+      - name: Deploy Cloud Run
+        run: |
+          SERVICE_ACCOUNT="remote-dev-host-service@$TARGET_PROJECT.iam.gserviceaccount.com"
+          gcloud run deploy "$SERVICE" \
+            --image "${{ steps.image.outputs.deployed_image }}" \
+            --region "$REGION" \
+            --project "$TARGET_PROJECT" \
+            --service-account "$SERVICE_ACCOUNT" \
+            --set-env-vars "REMOTE_DEV_HOST_SERVICE_CONFIG=/app/config/host-service-test.toml" \
+            --cpu 1 \
+            --concurrency 5 \
+            --timeout 600 \
+            --max-instances 20 \
+            --allow-unauthenticated \
+            --quiet
 
       - name: Delete successful run record
         if: success()

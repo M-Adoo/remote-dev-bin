@@ -1,0 +1,137 @@
+{
+  "ami_names": {
+    "aarch64": "nixos/25.11.8107.1073dad219cb-aarch64-linux"
+  },
+  "aws_arches": {
+    "aarch64": "arm64"
+  },
+  "candidate_summary": [
+    {
+      "coverage": {
+        "aarch64": 29
+      },
+      "latest_creation_date": "2026-03-29T00:27:25.000Z",
+      "missing_regions": {
+        "aarch64": []
+      },
+      "rev_prefix": "1073dad219cb"
+    },
+    {
+      "coverage": {
+        "aarch64": 29
+      },
+      "latest_creation_date": "2026-03-22T00:35:25.000Z",
+      "missing_regions": {
+        "aarch64": []
+      },
+      "rev_prefix": "812b3986fd15"
+    },
+    {
+      "coverage": {
+        "aarch64": 29
+      },
+      "latest_creation_date": "2026-03-15T00:25:41.000Z",
+      "missing_regions": {
+        "aarch64": []
+      },
+      "rev_prefix": "fabb8c9deee2"
+    },
+    {
+      "coverage": {
+        "aarch64": 28
+      },
+      "latest_creation_date": "2026-03-08T00:35:11.000Z",
+      "missing_regions": {
+        "aarch64": [
+          "me-central-1"
+        ]
+      },
+      "rev_prefix": "71caefce12ba"
+    },
+    {
+      "coverage": {
+        "aarch64": 29
+      },
+      "latest_creation_date": "2026-03-01T00:26:22.000Z",
+      "missing_regions": {
+        "aarch64": []
+      },
+      "rev_prefix": "1267bb4920d0"
+    },
+    {
+      "coverage": {
+        "aarch64": 29
+      },
+      "latest_creation_date": "2026-02-22T00:35:22.000Z",
+      "missing_regions": {
+        "aarch64": []
+      },
+      "rev_prefix": "c217913993d6"
+    },
+    {
+      "coverage": {
+        "aarch64": 29
+      },
+      "latest_creation_date": "2026-02-15T00:35:14.000Z",
+      "missing_regions": {
+        "aarch64": []
+      },
+      "rev_prefix": "3aadb7ca9eac"
+    },
+    {
+      "coverage": {
+        "aarch64": 29
+      },
+      "latest_creation_date": "2026-02-08T00:40:15.000Z",
+      "missing_regions": {
+        "aarch64": []
+      },
+      "rev_prefix": "23d72dabcb3b"
+    }
+  ],
+  "full_rev": "1073dad219cb244572b74da2b20c7fe39cb3fa9e",
+  "generated_at": "2026-06-01T13:57:09Z",
+  "host_arches": [
+    "aarch64"
+  ],
+  "latest_creation_date": "2026-03-29T00:27:25.000Z",
+  "region_count": 29,
+  "regions_by_arch": {
+    "aarch64": [
+      "af-south-1",
+      "ap-east-1",
+      "ap-northeast-1",
+      "ap-northeast-2",
+      "ap-northeast-3",
+      "ap-south-1",
+      "ap-south-2",
+      "ap-southeast-1",
+      "ap-southeast-2",
+      "ap-southeast-3",
+      "ap-southeast-4",
+      "ca-central-1",
+      "ca-west-1",
+      "eu-central-1",
+      "eu-central-2",
+      "eu-north-1",
+      "eu-south-1",
+      "eu-south-2",
+      "eu-west-1",
+      "eu-west-2",
+      "eu-west-3",
+      "il-central-1",
+      "me-central-1",
+      "me-south-1",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-1",
+      "us-west-2"
+    ]
+  },
+  "rev_prefix": "1073dad219cb",
+  "schema_version": 1,
+  "source_url": "https://nixos.github.io/amis/images.json",
+  "target": "host-service-test",
+  "target_branch": "host-service-test"
+}
