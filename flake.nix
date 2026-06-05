@@ -12,19 +12,19 @@
       binaries = {
         x86_64-linux = {
           url = "https://github.com/M-Adoo/remote-dev-bin/releases/download/v${version}/remote-dev-x86_64-linux.tar.gz";
-          hash = "";
+          hash = "sha256-6l8urjTpR854wfoNj+HNA1yYDCGZ6AmZKScdFGozn6I=";
         };
         aarch64-linux = {
           url = "https://github.com/M-Adoo/remote-dev-bin/releases/download/v${version}/remote-dev-aarch64-linux.tar.gz";
-          hash = "";
+          hash = "sha256-JvoXMuhAz+FFp/zAhZ/Ilhb7Qgwe+nf5ObSEXV9mFcg=";
         };
         x86_64-darwin = {
           url = "https://github.com/M-Adoo/remote-dev-bin/releases/download/v${version}/remote-dev-x86_64-darwin.tar.gz";
-          hash = "";
+          hash = "sha256-x89qjz94b/99lPOW2XoBT59Ew814TUYHW/KvjJ5XK18=";
         };
         aarch64-darwin = {
           url = "https://github.com/M-Adoo/remote-dev-bin/releases/download/v${version}/remote-dev-aarch64-darwin.tar.gz";
-          hash = "";
+          hash = "sha256-dRay/Bj0iAew2JByc+vkkWduSuRLt8pPulJZKxFYrLk=";
         };
       };
     in
