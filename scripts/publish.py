@@ -28,19 +28,16 @@ import urllib.request
 
 REPO = "M-Adoo/remote-dev-bin"
 SOURCE_REPO = "M-Adoo/remote-dev"
-HOST_CONFIG_ID = "remote-dev-nixos-host-v4"
+HOST_CONFIG_ID = "remote-dev-host-runtime-v1"
 IMAGE_CONTRACT_ID = "remote-dev-cloud-host-v1"
-HOST_IMAGE_SPEC_SCHEMA_VERSION = 4
+HOST_IMAGE_SPEC_SCHEMA_VERSION = 5
 HOST_IMAGE_SCHEMA_VERSION = 3
 FIRSTBOOT_SCHEMA_VERSION = 1
 AWS_BOOTSTRAP_FLAKE = "cloud/aws-bootstrap-flake.nix"
 AWS_BOOTSTRAP_LOCK = "cloud/aws-bootstrap-flake.lock"
-AWS_BOOTSTRAP_TOPLEVEL_ATTR = (
-    "nixosConfigurations.remote-dev-host.config.system.build.toplevel"
-)
 NIX_CACHE_DIR = "nix-cache"
 ARTIFACT_DIR = "artifacts"
-HOST_IMAGE_SPEC_DIR = "host-image-specs"
+HOST_IMAGE_SPEC_DIR = "host-runtime-specs"
 DEFAULT_NIXPKGS_REV = "0000000000000000000000000000000000000000"
 GITHUB_MAX_BLOB_BYTES = 100_000_000
 BOOTSTRAP_SOURCE_MAX_BYTES = 5 * 1024 * 1024
@@ -386,6 +383,7 @@ def remove_generated_paths(branch_dir: Path) -> None:
         "build-manifest.json",
         ARTIFACT_DIR,
         HOST_IMAGE_SPEC_DIR,
+        "host-image-specs",
         "host-image-spec.json",
         "host-service-test-metadata.json",
         "cloud-images.json",
@@ -408,6 +406,8 @@ def remove_generated_paths(branch_dir: Path) -> None:
         AWS_BOOTSTRAP_LOCK,
         "cloud/aws-bootstrap-closure-x86_64-linux.json",
         "cloud/aws-bootstrap-closure-aarch64-linux.json",
+        "cloud/host-runtime-closure-x86_64-linux.json",
+        "cloud/host-runtime-closure-aarch64-linux.json",
         NIX_CACHE_DIR,
     ]:
         path = branch_dir / relative
@@ -459,6 +459,10 @@ def package_attrs(manifests: list[dict[str, Any]]) -> str:
                     f"    ./{manifest['tarball']};",
                 ]
             )
+        if {m["kind"] for m in by_system[system]} >= {"remote-dev", "hostctrl"}:
+            lines.append(
+                "  remote-dev-host-runtime = mkHostRuntimePackage pkgs remote-dev remote-dev-hostctrl;"
+            )
         if any(m["kind"] == "hostctrl" for m in by_system[system]):
             lines.append("  remote-dev-kexec-installer = mkKexecInstallerPackage pkgs;")
         default = "remote-dev" if any(m["kind"] == "remote-dev" for m in by_system[system]) else "remote-dev-hostctrl"
@@ -494,41 +498,6 @@ def render_flake(repo_root: Path, branch_dir: Path, config: TargetConfig, manife
 
 def public_flake_ref(config: TargetConfig) -> str:
     return f"github:{REPO}/{config.branch}"
-
-
-def write_aws_bootstrap_flake(branch_dir: Path, config: TargetConfig, nixpkgs_rev: str) -> None:
-    text = f"""{{
-  description = "remote-dev AWS provider bootstrap";
-
-  inputs = {{
-    nixpkgs.url = "github:NixOS/nixpkgs/{nixpkgs_rev}";
-  }};
-
-  outputs = {{ nixpkgs, ... }}:
-    let
-      system = builtins.currentSystem or "x86_64-linux";
-      remoteDevBin = builtins.getFlake {nix_string(public_flake_ref(config))};
-    in
-    {{
-      nixosConfigurations.remote-dev-host = nixpkgs.lib.nixosSystem {{
-        inherit system;
-        modules = [
-          remoteDevBin.nixosModules.remote-dev-host
-          ({{ modulesPath, ... }}: {{
-            imports = [ "${{modulesPath}}/virtualisation/amazon-image.nix" ];
-            networking.hostName = "remote-dev-host";
-            services.openssh.enable = true;
-          }})
-        ];
-      }};
-    }};
-}}
-"""
-    path = branch_dir / AWS_BOOTSTRAP_FLAKE
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
-    if (branch_dir / "flake.lock").is_file():
-        shutil.copy2(branch_dir / "flake.lock", branch_dir / AWS_BOOTSTRAP_LOCK)
 
 
 def read_nixpkgs_rev(branch_dir: Path, repo_root: Path) -> str:
@@ -822,8 +791,16 @@ def pin_arch_selection(target: str, arch: str | None) -> str:
     return "both"
 
 
-def placeholder_store_path(system: str) -> str:
-    return f"/nix/store/00000000000000000000000000000000-nixos-system-remote-dev-host-{system}"
+def placeholder_runtime_store_path(system: str) -> str:
+    return f"/nix/store/00000000000000000000000000000000-remote-dev-host-runtime-{system}"
+
+
+def host_runtime_attr(system: str) -> str:
+    return f"packages.{system}.remote-dev-host-runtime"
+
+
+def host_runtime_closure_manifest_file(system: str) -> str:
+    return f"cloud/host-runtime-closure-{system}.json"
 
 
 def write_host_specs(
@@ -831,10 +808,12 @@ def write_host_specs(
     config: TargetConfig,
     nixpkgs_rev: str,
     trusted_public_key: str,
-    toplevels: dict[str, str] | None = None,
+    runtimes: dict[str, str] | None = None,
 ) -> None:
     for arch in config.host_arches:
         system = f"{arch}-linux"
+        runtime_store_path = (runtimes or {}).get(system, placeholder_runtime_store_path(system))
+        runtime_closure_manifest = host_runtime_closure_manifest_file(system)
         spec = {
             "schema_version": HOST_IMAGE_SPEC_SCHEMA_VERSION,
             "baseline_id": HOST_CONFIG_ID,
@@ -852,13 +831,11 @@ def write_host_specs(
                 "root_device_name": "/dev/xvda",
             },
             "bootstrap": {
-                "flake_file": AWS_BOOTSTRAP_FLAKE,
-                "lock_file": AWS_BOOTSTRAP_LOCK,
-                "toplevel_attr": AWS_BOOTSTRAP_TOPLEVEL_ATTR,
+                "runtime_attr": host_runtime_attr(system),
                 "nixpkgs_rev": nixpkgs_rev,
                 "system": system,
-                "toplevel_store_path": (toplevels or {}).get(system, placeholder_store_path(system)),
-                "closure_manifest_file": f"cloud/aws-bootstrap-closure-{system}.json",
+                "runtime_store_path": runtime_store_path,
+                "runtime_closure_manifest_file": runtime_closure_manifest,
             },
             "nix_cache": {
                 "substituter_url": f"https://raw.githubusercontent.com/{REPO}/{config.branch}/{NIX_CACHE_DIR}",
@@ -866,13 +843,14 @@ def write_host_specs(
             },
         }
         json_dump(branch_dir / HOST_IMAGE_SPEC_DIR / f"{arch}.json", spec)
-        closure_path = branch_dir / spec["bootstrap"]["closure_manifest_file"]
+        closure_path = branch_dir / runtime_closure_manifest
         if not closure_path.is_file():
             closure = {
                 "schema_version": 1,
                 "system": system,
-                "toplevel_store_path": spec["bootstrap"]["toplevel_store_path"],
-                "paths": [spec["bootstrap"]["toplevel_store_path"]],
+                "runtime_attr": host_runtime_attr(system),
+                "runtime_store_path": runtime_store_path,
+                "paths": [runtime_store_path],
             }
             json_dump(closure_path, closure)
 
@@ -897,76 +875,68 @@ def version_string(config: TargetConfig, source_sha: str, source_ref: str) -> st
     return f"host-service-test.{stamp}-g{short}-{ref}"
 
 
-def maybe_realize_bootstrap_and_cache(
+def maybe_realize_runtime_and_cache(
     branch_dir: Path, config: TargetConfig, signing_key: str | None, trusted_public_key: str
 ) -> dict[str, str]:
     if not signing_key:
         return {}
-    toplevels: dict[str, str] = {}
-    with tempfile.TemporaryDirectory(prefix="remote-dev-bin-bootstrap-") as tmp:
-        tmp_dir = Path(tmp)
-        flake = (branch_dir / AWS_BOOTSTRAP_FLAKE).read_text()
-        flake = flake.replace(
-            nix_string(public_flake_ref(config)), nix_string(f"path:{branch_dir}")
+    runtimes: dict[str, str] = {}
+    for arch in config.host_arches:
+        system = f"{arch}-linux"
+        attr = f"path:{branch_dir}#{host_runtime_attr(system)}"
+        output = run(
+            [
+                "nix",
+                "--extra-experimental-features",
+                "nix-command flakes",
+                "build",
+                "--impure",
+                "--system",
+                system,
+                "--print-out-paths",
+                "--no-link",
+                attr,
+            ],
+            cwd=branch_dir,
+            capture=True,
+        ).strip()
+        if not output.startswith("/nix/store/"):
+            raise Fail(f"nix build for {system} did not return a store path: {output}")
+        output = output.splitlines()[-1]
+        runtimes[system] = output
+        closure = run(
+            [
+                "nix",
+                "--extra-experimental-features",
+                "nix-command",
+                "path-info",
+                "--json",
+                "--sigs",
+                "--size",
+                "--recursive",
+                output,
+            ],
+            cwd=branch_dir,
+            capture=True,
         )
-        (tmp_dir / "flake.nix").write_text(flake)
-        if (branch_dir / AWS_BOOTSTRAP_LOCK).is_file():
-            shutil.copy2(branch_dir / AWS_BOOTSTRAP_LOCK, tmp_dir / "flake.lock")
-        for arch in config.host_arches:
-            system = f"{arch}-linux"
-            attr = f"path:{tmp_dir}#{AWS_BOOTSTRAP_TOPLEVEL_ATTR}"
-            output = run(
-                [
-                    "nix",
-                    "--extra-experimental-features",
-                    "nix-command flakes",
-                    "build",
-                    "--impure",
-                    "--system",
-                    system,
-                    "--print-out-paths",
-                    "--no-link",
-                    attr,
-                ],
-                cwd=branch_dir,
-                capture=True,
-            ).strip()
-            if not output.startswith("/nix/store/"):
-                raise Fail(f"nix build for {system} did not return a store path: {output}")
-            output = output.splitlines()[-1]
-            toplevels[system] = output
-            closure = run(
-                [
-                    "nix",
-                    "--extra-experimental-features",
-                    "nix-command",
-                    "path-info",
-                    "--json",
-                    "--sigs",
-                    "--size",
-                    "--recursive",
-                    output,
-                ],
-                cwd=branch_dir,
-                capture=True,
-            )
-            json_dump(
-                branch_dir / f"cloud/aws-bootstrap-closure-{system}.json",
-                {
-                    "schema_version": 1,
-                    "system": system,
-                    "toplevel_store_path": output,
-                    "paths": json.loads(closure),
-                },
-            )
-    write_signed_nix_cache(branch_dir, signing_key, trusted_public_key, list(toplevels.values()))
-    return toplevels
+        json_dump(
+            branch_dir / host_runtime_closure_manifest_file(system),
+            {
+                "schema_version": 1,
+                "system": system,
+                "runtime_attr": host_runtime_attr(system),
+                "runtime_store_path": output,
+                "paths": json.loads(closure),
+            },
+        )
+    write_signed_nix_cache(branch_dir, signing_key, trusted_public_key, list(runtimes.values()))
+    return runtimes
 
 
 def write_signed_nix_cache(
-    branch_dir: Path, signing_key: str, trusted_public_key: str, toplevels: list[str]
+    branch_dir: Path, signing_key: str, trusted_public_key: str, runtime_roots: list[str]
 ) -> None:
-    roots = sorted(remote_dev_bin_cache_roots(branch_dir, toplevels))
+    roots = sorted(remote_dev_bin_cache_roots(branch_dir, runtime_roots))
     if not roots:
         return
     run_with_input(
@@ -990,11 +960,11 @@ def write_signed_nix_cache(
         write_narinfo(branch_dir, cache_dir, path, key_name)
 
 
-def audit_bootstrap_closures(branch_dir: Path, config: TargetConfig) -> list[dict[str, Any]]:
+def audit_runtime_closures(branch_dir: Path, config: TargetConfig) -> list[dict[str, Any]]:
     audits = []
     for arch in config.host_arches:
         system = f"{arch}-linux"
-        closure_path = branch_dir / f"cloud/aws-bootstrap-closure-{system}.json"
+        closure_path = branch_dir / host_runtime_closure_manifest_file(system)
         audit = audit_closure_manifest(branch_dir / NIX_CACHE_DIR, json_load(closure_path))
         audit["system"] = system
         audits.append(audit)
@@ -1040,12 +1010,12 @@ def audit_closure_manifest(cache_dir: Path, closure: dict[str, Any]) -> dict[str
                 missing_narinfo.append(path)
     if large_sources:
         raise Fail(
-            "bootstrap closure contains source paths over "
+            "runtime closure contains source paths over "
             f"{BOOTSTRAP_SOURCE_MAX_BYTES} bytes: {', '.join(large_sources)}"
         )
     if missing_narinfo:
         raise Fail(
-            "unsigned bootstrap closure paths missing remote-dev-bin narinfo: "
+            "unsigned runtime closure paths missing remote-dev-bin narinfo: "
             + ", ".join(missing_narinfo)
         )
     top_nar_size_paths.sort(key=lambda entry: entry["nar_size"], reverse=True)
@@ -1083,9 +1053,9 @@ def compressed_cache_size(cache_dir: Path) -> int:
     return sum(path.stat().st_size for path in nar_dir.glob("*.nar.xz") if path.is_file())
 
 
-def remote_dev_bin_cache_roots(branch_dir: Path, toplevels: list[str]) -> set[str]:
-    roots = set(toplevels)
-    for toplevel in toplevels:
+def remote_dev_bin_cache_roots(branch_dir: Path, runtime_roots: list[str]) -> set[str]:
+    roots = set(runtime_roots)
+    for runtime_root in runtime_roots:
         output = run(
             [
                 "nix",
@@ -1096,7 +1066,7 @@ def remote_dev_bin_cache_roots(branch_dir: Path, toplevels: list[str]) -> set[st
                 "--sigs",
                 "--size",
                 "--recursive",
-                toplevel,
+                runtime_root,
             ],
             cwd=branch_dir,
             capture=True,
@@ -1357,14 +1327,13 @@ def cmd_render_tree(args: argparse.Namespace) -> None:
     version = args.version or version_string(config, args.source_sha, args.source_ref)
     render_flake(repo_root, branch_dir, config, copied, version)
     nixpkgs_rev = read_nixpkgs_rev(branch_dir, repo_root)
-    write_aws_bootstrap_flake(branch_dir, config, nixpkgs_rev)
     write_nix_cache_info(branch_dir, trusted_key)
-    toplevels = maybe_realize_bootstrap_and_cache(
+    runtimes = maybe_realize_runtime_and_cache(
         branch_dir, config, args.nix_cache_signing_key_file, trusted_key
     )
-    write_host_specs(branch_dir, config, nixpkgs_rev, trusted_key, toplevels)
+    write_host_specs(branch_dir, config, nixpkgs_rev, trusted_key, runtimes)
     closure_audits = (
-        audit_bootstrap_closures(branch_dir, config)
+        audit_runtime_closures(branch_dir, config)
         if args.nix_cache_signing_key_file
         else []
     )
@@ -1407,12 +1376,18 @@ def validate_tree(branch_dir: Path, config: TargetConfig) -> None:
         "build-manifest.json",
         "flake.nix",
         "flake.lock",
-        AWS_BOOTSTRAP_FLAKE,
-        AWS_BOOTSTRAP_LOCK,
         f"{NIX_CACHE_DIR}/nix-cache-info",
     ]:
         if not (branch_dir / relative).is_file():
             raise Fail(f"missing required branch artifact {relative}")
+    for stale in [
+        AWS_BOOTSTRAP_FLAKE,
+        AWS_BOOTSTRAP_LOCK,
+        "cloud/aws-bootstrap-closure-x86_64-linux.json",
+        "cloud/aws-bootstrap-closure-aarch64-linux.json",
+    ]:
+        if (branch_dir / stale).exists():
+            raise Fail(f"stale bootstrap artifact must not be rendered: {stale}")
     flake = (branch_dir / "flake.nix").read_text()
     if "releases/download" in flake or "fetchurl" in flake:
         raise Fail("flake.nix must consume repo-local artifacts, not GitHub Release URLs")
@@ -1435,19 +1410,19 @@ def validate_tree(branch_dir: Path, config: TargetConfig) -> None:
     for arch in config.host_arches:
         spec_path = branch_dir / HOST_IMAGE_SPEC_DIR / f"{arch}.json"
         if not spec_path.is_file():
-            raise Fail(f"missing host image spec {spec_path.relative_to(branch_dir)}")
+            raise Fail(f"missing host runtime spec {spec_path.relative_to(branch_dir)}")
         spec = json_load(spec_path)
         if spec.get("arch") != arch:
             raise Fail(f"{spec_path}: arch mismatch")
         if spec.get("schema_version") != HOST_IMAGE_SPEC_SCHEMA_VERSION:
             raise Fail(f"{spec_path}: schema_version mismatch")
-        closure = branch_dir / spec["bootstrap"]["closure_manifest_file"]
+        closure = branch_dir / spec["bootstrap"]["runtime_closure_manifest_file"]
         if not closure.is_file():
             raise Fail(f"{spec_path}: closure manifest is missing")
     missing_arches = {"x86_64", "aarch64"} - set(config.host_arches)
     for arch in missing_arches:
         if (branch_dir / HOST_IMAGE_SPEC_DIR / f"{arch}.json").exists():
-            raise Fail(f"unexpected host image spec for unbuilt arch {arch}")
+            raise Fail(f"unexpected host runtime spec for unbuilt arch {arch}")
 
 
 def cmd_validate_tree(args: argparse.Namespace) -> None:
@@ -1833,9 +1808,9 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         )
         cmd_render_tree(ns)
         flake = (branch / "flake.nix").read_text()
-        bootstrap_flake = (branch / AWS_BOOTSTRAP_FLAKE).read_text()
         for expected in [
-            'host_config_id = "remote-dev-nixos-host-v4";',
+            'host_config_id = "remote-dev-host-runtime-v1";',
+            "remote-dev-host-runtime = mkHostRuntimePackage pkgs remote-dev remote-dev-hostctrl;",
             "remoteDevPackage",
             "pkgs.mosh",
             "pkgs.gitMinimal",
@@ -1856,10 +1831,22 @@ def cmd_self_test(_: argparse.Namespace) -> None:
                 raise Fail(f"rendered flake is missing {expected}")
         if any(line.strip() == "pkgs.git" for line in flake.splitlines()):
             raise Fail("host baseline must use pkgs.gitMinimal instead of pkgs.git")
-        if "remoteDevBin.nixosModules.remote-dev-firstboot-register" in bootstrap_flake:
-            raise Fail("AWS provider bootstrap flake must not import firstboot register module")
+        spec_path = branch / "host-runtime-specs/aarch64.json"
+        spec = json_load(spec_path)
+        if spec["baseline_id"] != "remote-dev-host-runtime-v1":
+            raise Fail("runtime spec did not use the runtime contract id")
+        if spec["bootstrap"]["runtime_attr"] != "packages.aarch64-linux.remote-dev-host-runtime":
+            raise Fail("runtime spec did not point at the host runtime package")
+        if spec["bootstrap"]["runtime_closure_manifest_file"] != "cloud/host-runtime-closure-aarch64-linux.json":
+            raise Fail("runtime spec did not point at the runtime closure manifest")
+        if not (branch / "cloud/host-runtime-closure-aarch64-linux.json").is_file():
+            raise Fail("runtime closure manifest was not rendered")
+        if (branch / AWS_BOOTSTRAP_FLAKE).exists() or (branch / AWS_BOOTSTRAP_LOCK).exists():
+            raise Fail("AWS bootstrap flake must not be rendered for host runtime firstboot")
         if (branch / "host-image-specs/x86_64.json").exists():
             raise Fail("aarch64-only publish rendered x86_64 host spec")
+        if (branch / "host-runtime-specs/x86_64.json").exists():
+            raise Fail("aarch64-only publish rendered x86_64 runtime spec")
     print("self-test passed")
 
 

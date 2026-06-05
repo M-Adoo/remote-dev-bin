@@ -23,10 +23,8 @@ Both refs use the same generated artifact schema:
 - `artifacts/*.build.json`
 - `flake.nix`
 - `flake.lock`
-- `host-image-specs/<arch>.json`
-- `cloud/aws-bootstrap-flake.nix`
-- `cloud/aws-bootstrap-flake.lock`
-- `cloud/aws-bootstrap-closure-<system>.json`
+- `host-runtime-specs/<arch>.json`
+- `cloud/host-runtime-closure-<system>.json`
 - `cloud/host-service-image.json`
 - `nix-cache/`
 
