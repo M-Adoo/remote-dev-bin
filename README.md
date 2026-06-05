@@ -1,64 +1,50 @@
 # remote-dev-bin
 
-Pre-built binaries for [remote-dev](https://github.com/M-Adoo/remote-dev).
+This is the public artifact and execution repository for the private
+`M-Adoo/remote-dev` project.
 
-## Installation
+It is public so Nix flakes, HostService hosts, and GitHub Actions can fetch
+generated artifacts without private repository credentials. It is not a
+general-purpose product distribution channel and does not promise stability,
+compatibility, or support for external users.
 
-### Via Nix (Recommended)
+## Published Refs
 
-```bash
-nix profile install github:M-Adoo/remote-dev-bin
-```
+- `main`: production release artifacts and production Cloud Run deployment
+  metadata.
+- `host-service-test`: floating test artifacts and test Cloud Run deployment
+  metadata. This branch may be force-pushed by retention cleanup.
 
-Or in a flake input:
+Both refs use the same generated artifact schema:
 
-```nix
-{
-  inputs.remote-dev-bin.url = "github:M-Adoo/remote-dev-bin";
+- `build-manifest.json`
+- `artifacts/*.tar.gz`
+- `artifacts/*.tar.gz.sha256`
+- `artifacts/*.build.json`
+- `flake.nix`
+- `flake.lock`
+- `host-image-specs/<arch>.json`
+- `cloud/aws-bootstrap-flake.nix`
+- `cloud/aws-bootstrap-flake.lock`
+- `cloud/aws-bootstrap-closure-<system>.json`
+- `cloud/host-service-image.json`
+- `nix-cache/`
 
-  outputs = { remote-dev-bin, ... }: {
-    # Use remote-dev-bin.packages.<system>.default
-  };
-}
-```
+The flake consumes repository-local tarballs from `artifacts/`; it does not
+fetch GitHub Release assets.
 
-### Direct Download
+## Workflows
 
-```bash
-# Detect architecture and download
-ARCH=$(uname -m)
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-VERSION="0.1.0"
+`Publish Test Artifacts` is manual and always publishes to
+`host-service-test` for the `remote-dev-host-test` project. The source ref is
+required so test publishes use the commit or private temporary branch under
+test, not an implicit `remote-dev/main`. It defaults to `aarch64` and can build
+`x86_64`, `aarch64`, or both.
 
-curl -L "https://github.com/M-Adoo/remote-dev-bin/releases/download/v${VERSION}/remote-dev-${ARCH}-${OS}.tar.gz" | tar xz
-chmod +x remote-dev
-sudo mv remote-dev /usr/local/bin/
-```
+`Publish Release Artifacts` is manual and always publishes to `main` for the
+`remote-dev-host-prod` project. It builds the full binary matrix, deploys prod
+Cloud Run from the image digest, and requires the protected `prod` environment
+plus `REMOTE_DEV_CONFIRM_PROD=remote-dev-host-prod`.
 
-## Supported Platforms
-
-| Platform | Architecture |
-|----------|-------------|
-| Linux | x86_64, aarch64 |
-| macOS | x86_64 (Intel), aarch64 (Apple Silicon) |
-
-## Version Pinning
-
-Each release is tagged with a version matching the `remote-dev` source.
-Pin to a specific version in your flake:
-
-```nix
-inputs.remote-dev-bin.url = "github:M-Adoo/remote-dev-bin/v0.1.0";
-```
-
-## How It Works
-
-This repository is automatically updated by CI in the private `remote-dev`
-source repository. On each release:
-
-1. CI cross-compiles `remote-dev` for all supported platforms
-2. Uploads binaries as GitHub Release assets here
-3. Updates `flake.nix` with correct hashes
-
-The `flake.nix` uses `fetchurl` to wrap pre-built binaries as Nix packages,
-so `nix build` only downloads—no compilation needed.
+`Cleanup HostService Test Artifacts` only rewrites `host-service-test` and old
+successful workflow run records. `main` must not be force-pushed.

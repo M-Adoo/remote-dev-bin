@@ -1,0 +1,49 @@
+name: Cleanup HostService Test Artifacts
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout publisher
+        uses: actions/checkout@v4
+        with:
+          path: publisher
+
+      - name: Checkout host-service-test branch
+        uses: actions/checkout@v4
+        with:
+          ref: host-service-test
+          path: published
+
+      - name: Retain latest generated test tree
+        run: |
+          python3 publisher/scripts/publish.py cleanup-test-branch \
+            --branch-dir published \
+            --branch host-service-test \
+            --max-commits 5 \
+            --max-days 7
+
+      - name: Force-push host-service-test only
+        working-directory: published
+        run: git push --force origin host-service-test
+
+      - name: Delete old successful workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list --repo "$GITHUB_REPOSITORY" --status success --limit 100 --json databaseId \
+            --jq '.[].databaseId' \
+            | tail -n +21 \
+            | while read -r run_id; do
+                [ -n "$run_id" ] || continue
+                gh run delete "$run_id" --repo "$GITHUB_REPOSITORY" --yes || true
+              done
