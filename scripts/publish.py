@@ -28,7 +28,7 @@ import urllib.request
 
 REPO = "M-Adoo/remote-dev-bin"
 SOURCE_REPO = "M-Adoo/remote-dev"
-HOST_CONFIG_ID = "remote-dev-host-runtime-v1"
+HOST_CONFIG_ID = "remote-dev-host-runtime-v2"
 IMAGE_CONTRACT_ID = "remote-dev-cloud-host-v1"
 HOST_IMAGE_SPEC_SCHEMA_VERSION = 5
 HOST_IMAGE_SCHEMA_VERSION = 3
@@ -1809,7 +1809,7 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         cmd_render_tree(ns)
         flake = (branch / "flake.nix").read_text()
         for expected in [
-            'host_config_id = "remote-dev-host-runtime-v1";',
+            'host_config_id = "remote-dev-host-runtime-v2";',
             "remote-dev-host-runtime = mkHostRuntimePackage pkgs remote-dev remote-dev-hostctrl;",
             "remoteDevPackage",
             "pkgs.mosh",
@@ -1833,7 +1833,7 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             raise Fail("host baseline must use pkgs.gitMinimal instead of pkgs.git")
         spec_path = branch / "host-runtime-specs/aarch64.json"
         spec = json_load(spec_path)
-        if spec["baseline_id"] != "remote-dev-host-runtime-v1":
+        if spec["baseline_id"] != "remote-dev-host-runtime-v2":
             raise Fail("runtime spec did not use the runtime contract id")
         if spec["bootstrap"]["runtime_attr"] != "packages.aarch64-linux.remote-dev-host-runtime":
             raise Fail("runtime spec did not point at the host runtime package")

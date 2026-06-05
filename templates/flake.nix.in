@@ -13,7 +13,7 @@
       version = __VERSION__;
 
       hostArtifacts = {
-        host_config_id = "remote-dev-host-runtime-v1";
+        host_config_id = "remote-dev-host-runtime-v2";
         image_contract_id = "remote-dev-cloud-host-v1";
         disk_count = 1;
         disko_layout_id = "single-disk-efi-ext4-v1";
