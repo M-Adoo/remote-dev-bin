@@ -44,5 +44,7 @@ test, not an implicit `remote-dev/main`. It defaults to `aarch64` and can build
 Cloud Run from the image digest, and requires the protected `prod` environment
 plus `REMOTE_DEV_CONFIRM_PROD=remote-dev-host-prod`.
 
-`Cleanup HostService Test Artifacts` only rewrites `host-service-test` and old
-successful workflow run records. `main` must not be force-pushed.
+`Cleanup HostService Test Artifacts` rewrites `host-service-test`, keeps only the
+latest 5 successful workflow run records, and removes any completed workflow run
+record older than 7 days, including failed or cancelled runs. `main` must not be
+force-pushed.
