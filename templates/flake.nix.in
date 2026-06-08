@@ -41,7 +41,7 @@ __HOST_IMAGE_SPEC_VALUES__
           '';
         };
 
-      hostRuntimePackages = pkgs: remoteDevPackage: hostctrlPackage: [
+      hostRuntimePackages = pkgs: remoteDevPackage: hostctrlPackage: runtimePackage: [
         pkgs.bash
         pkgs.coreutils
         pkgs.curl
@@ -53,12 +53,13 @@ __HOST_IMAGE_SPEC_VALUES__
         pkgs.util-linux
         remoteDevPackage
         hostctrlPackage
+        runtimePackage
       ];
 
-      mkHostRuntimePackage = pkgs: remoteDevPackage: hostctrlPackage:
+      mkHostRuntimePackage = pkgs: remoteDevPackage: hostctrlPackage: runtimePackage:
         pkgs.buildEnv {
           name = "remote-dev-host-runtime";
-          paths = hostRuntimePackages pkgs remoteDevPackage hostctrlPackage;
+          paths = hostRuntimePackages pkgs remoteDevPackage hostctrlPackage runtimePackage;
           pathsToLink = [ "/bin" "/sbin" ];
         };
 
@@ -582,6 +583,8 @@ __HOST_IMAGE_SPEC_VALUES__
             (throw "remote-dev artifact is not published for ${system} in this remote-dev-bin ref");
           hostctrlPackage = self.packages.${system}.remote-dev-hostctrl or
             (throw "remote-dev-hostctrl artifact is not published for ${system} in this remote-dev-bin ref");
+          runtimePackage = self.packages.${system}.remote-dev-runtime or
+            (throw "remote-dev-runtime artifact is not published for ${system} in this remote-dev-bin ref");
         in
         {
           services.openssh.enable = true;
@@ -615,7 +618,7 @@ __HOST_IMAGE_SPEC_VALUES__
             %remote-dev-lease ALL=(ALL:ALL) NOPASSWD:SETENV: ALL
           '';
 
-          environment.systemPackages = hostRuntimePackages pkgs remoteDevPackage hostctrlPackage;
+          environment.systemPackages = hostRuntimePackages pkgs remoteDevPackage hostctrlPackage runtimePackage;
 
           environment.etc."remote-dev/host-artifacts.json".text =
             builtins.toJSON hostArtifacts;
