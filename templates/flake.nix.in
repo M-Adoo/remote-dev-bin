@@ -45,12 +45,17 @@ __HOST_IMAGE_SPEC_VALUES__
         pkgs.bash
         pkgs.coreutils
         pkgs.curl
+        pkgs.fzf
         pkgs.gitMinimal
         pkgs.iproute2
         pkgs.mosh
         pkgs.openssh
+        pkgs.patchelf
+        pkgs.starship
         pkgs.systemd
         pkgs.util-linux
+        pkgs.zsh
+        pkgs.zstd
         remoteDevPackage
         hostctrlPackage
         runtimePackage
