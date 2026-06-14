@@ -1,0 +1,28 @@
+{
+  "arch": "aarch64",
+  "aws_official_nixos_ami": {
+    "arch": "arm64",
+    "name_pattern": "nixos/*",
+    "owner": "427812963091",
+    "root_device_name": "/dev/xvda"
+  },
+  "baseline_id": "remote-dev-host-runtime-v2",
+  "bootstrap": {
+    "nixpkgs_rev": "1073dad219cb244572b74da2b20c7fe39cb3fa9e",
+    "runtime_attr": "packages.aarch64-linux.remote-dev-host-runtime",
+    "runtime_closure_manifest_file": "cloud/host-runtime-closure-aarch64-linux.json",
+    "runtime_store_path": "/nix/store/cdbj9c2k7b05w2pff85ayhi9jjdjsijy-remote-dev-host-runtime",
+    "system": "aarch64-linux"
+  },
+  "disk_count": 1,
+  "firstboot_module": "nixosModules.remote-dev-firstboot-register",
+  "firstboot_schema_version": 1,
+  "host_module": "nixosModules.remote-dev-host",
+  "image_contract_id": "remote-dev-cloud-host-v1",
+  "image_schema_version": 3,
+  "nix_cache": {
+    "substituter_url": "https://raw.githubusercontent.com/M-Adoo/remote-dev-bin/host-service-test/nix-cache",
+    "trusted_public_key": "remote-dev-bin:M58YnePxJv1ZwqFIe2L1rSCmTM+kUGa5wac0gQ1Xrl4="
+  },
+  "schema_version": 5
+}

@@ -1,0 +1,10 @@
+StorePath: /nix/store/9a3q8p26scval5gxky2r11x2axkwkkl5-remote-dev-runtime-host-service-test.20260614T153357Z-g0cb4790f95b8-remote-dev-bin-test-0cb4790f95b8-1781450681
+URL: nar/0cjlzfx6xx54d3047fx9s3g3c5ms77pzmjxyi5xv5ag3fi3vabw8.nar.xz
+Compression: xz
+FileHash: sha256:0cjlzfx6xx54d3047fx9s3g3c5ms77pzmjxyi5xv5ag3fi3vabw8
+FileSize: 477504
+NarHash: sha256:1v126ddbqwcbglvpbql5aqdnqs7h6x5594q02g7si09y42028ll6
+NarSize: 1837848
+References: qja3pnk0if5zlbdsdd722gcpk4czqvin-gcc-14.3.0-libgcc qqx8w6hdkaq4ckszi08kz568c1a9y8sf-glibc-2.40-218
+Deriver: an35fg0k2ps3m867akjpja86dhb45nk7-remote-dev-runtime-host-service-test.20260614T153357Z-g0cb4790f95b8-remote-dev-bin-test-0cb4790f95b8-1781450681.drv
+Sig: remote-dev-bin:7OiWiJYTfYX7lNOjMFvKOCZILx3XM7KTKBN6xnLCaXS7QITpMW+YGCVfRJKIQr/OpTQOLM/zkReMZqsZ3ZrZBw==

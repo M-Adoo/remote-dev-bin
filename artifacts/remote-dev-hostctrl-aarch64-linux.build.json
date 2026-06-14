@@ -1,0 +1,17 @@
+{
+  "arch": "aarch64",
+  "artifact": "remote-dev-hostctrl-aarch64-linux",
+  "binary": "remote-dev-hostctrl",
+  "cargo_target": "aarch64-unknown-linux-gnu",
+  "generated_at": "2026-06-14T15:25:24Z",
+  "kind": "hostctrl",
+  "package": "remote-dev-hostctrl",
+  "schema_version": 1,
+  "sha256": "4a696c3d590e6704ffcf1491cd0ca025285c8cf8949f3661e7c9358c22bd0d2b",
+  "source_ref": "remote-dev-bin-test/0cb4790f95b8-1781450681",
+  "source_repo": "M-Adoo/remote-dev",
+  "source_sha": "0cb4790f95b8b5ae65722a529787da1c72d3a276",
+  "system": "aarch64-linux",
+  "tarball": "remote-dev-hostctrl-aarch64-linux.tar.gz",
+  "target": "host-service-test"
+}

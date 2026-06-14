@@ -1,0 +1,10 @@
+StorePath: /nix/store/cdbj9c2k7b05w2pff85ayhi9jjdjsijy-remote-dev-host-runtime
+URL: nar/1162qx0rk4gfkqpqm8ksrj4l7la5vjgldi58cdrl0q5za21jamib.nar.xz
+Compression: xz
+FileHash: sha256:1162qx0rk4gfkqpqm8ksrj4l7la5vjgldi58cdrl0q5za21jamib
+FileSize: 6772
+NarHash: sha256:0912lr1p7alb6gg9aa3sqr2jxf996h9ngh0nrznqhk70nbpi0m3z
+NarSize: 152232
+References: 2azkqwknbxpcvcc7cmqrbxnk5s25qzgd-bash-interactive-5.3p3 2d9wz51l7mv6856xmz0csl7v7r651ma6-patchelf-0.15.2 3n6kjqdhx1wy77s5g5bqakw4yqagsz5w-zstd-1.5.7-bin 6j0wr7djlsxhm4campmdp6qkhdp97nfn-starship-1.24.2 9a3q8p26scval5gxky2r11x2axkwkkl5-remote-dev-runtime-host-service-test.20260614T153357Z-g0cb4790f95b8-remote-dev-bin-test-0cb4790f95b8-1781450681 anip6zxwkwjcbl30ad742qpbzb078n9w-util-linux-2.41.3-bin dib0qr25040cs10b7fgzxz9jxwzhw4k8-remote-dev-host-service-test.20260614T153357Z-g0cb4790f95b8-remote-dev-bin-test-0cb4790f95b8-1781450681 dlcl518062w33dmnwqc10gqp1czl2y6f-iproute2-6.17.0 f7z3w5awhphs5pgmmjlrn5g7ck036sqb-git-minimal-2.51.2 gh2b84631aixlncv8dzc22fpsprna3np-mosh-1.4.0 hgi9m6fqyqipznqs4rc28s2hx09w7nvb-systemd-258.3 i2yia2j4l78ffhn6kqxzykk82ag63rpm-fzf-0.67.0 qlfnvsv9kawvlm41g02wfpy8wdnnb5zm-curl-8.18.0-bin qly36f94vxv46wls6h0cgzr9lagpjc1x-remote-dev-hostctrl-host-service-test.20260614T153357Z-g0cb4790f95b8-remote-dev-bin-test-0cb4790f95b8-1781450681 s29f95k50f7rmydgicz6rzls6f0xmhnv-openssh-10.2p1 xnyjq48kxln8zzdpn1ql2s3y9xgyhs9d-zsh-5.9 ymnsyzxsqcbdk3ycngm091d2j6n7ky4v-coreutils-9.8
+Deriver: rkg7w60vpgy0jmfz7z9w3d4s4jqq448l-remote-dev-host-runtime.drv
+Sig: remote-dev-bin:nZbjZTfPimjpRKXSahkEeEAhkByK5V0Wen36kFvk7REaFPCeUajeGUZ8kJb6ndPPw39FtnxPqaiXz83ThQgWAg==
