@@ -154,22 +154,45 @@ jobs:
         run: |
           mkdir -p out
           IMAGE="$REGION-docker.pkg.dev/$TARGET_PROJECT/$IMAGE_REPOSITORY/$IMAGE_NAME:${IMAGE_TAG:0:17}"
-          docker buildx build \
+          time_step() {
+            local label="$1"
+            shift
+            local start
+            local end
+            echo "::group::$label"
+            start="$(date +%s)"
+            "$@"
+            end="$(date +%s)"
+            echo "$label elapsed_seconds=$((end - start))"
+            echo "::endgroup::"
+          }
+
+          time_step "Docker build" /usr/bin/time -v docker buildx build \
+            --progress=plain \
             --platform linux/amd64 \
             -f remote-dev/Dockerfile.host-service \
             -t "$IMAGE" \
             --build-arg CARGO_PROFILE_RELEASE_OPT_LEVEL=3 \
+            --cache-from type=gha,scope=host-service-linux-amd64 \
+            --cache-to type=gha,mode=max,scope=host-service-linux-amd64 \
             --output "type=docker,dest=$PWD/out/host-service-linux-amd64.tar" \
             remote-dev
-          zstd -19 -f out/host-service-linux-amd64.tar -o out/host-service-linux-amd64.tar.zst
+          time_step "zstd compress" /usr/bin/time -v zstd -19 -f out/host-service-linux-amd64.tar -o out/host-service-linux-amd64.tar.zst
           rm out/host-service-linux-amd64.tar
           echo "$IMAGE" > out/host-service-image-ref.txt
-          python3 scripts/publish.py write-image-manifest \
+          time_step "Manifest write" python3 scripts/publish.py write-image-manifest \
             --target "$TARGET" \
             --source-ref "${{ needs.resolve-source.outputs.source_ref }}" \
             --source-sha "${{ needs.resolve-source.outputs.source_sha }}" \
             --tarball out/host-service-linux-amd64.tar.zst \
             --output out/host-service-linux-amd64.build.json
+          artifact_start="$(date +%s)"
+          echo "::group::Artifact size"
+          du -h out/*
+          du -sh out
+          artifact_end="$(date +%s)"
+          echo "Artifact size elapsed_seconds=$((artifact_end - artifact_start))"
+          echo "::endgroup::"
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
@@ -311,7 +334,7 @@ jobs:
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run delete "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --yes || true
+        run: gh run delete "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" || true
 
       - name: Remove private files
         if: always()

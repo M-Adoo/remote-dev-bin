@@ -1589,6 +1589,9 @@ def assert_workflows(repo_root: Path) -> None:
         raise Fail("test build jobs must not receive contents write")
     if "git add -A" not in test or "git add -A" not in release:
         raise Fail("publish workflows must stage generated deletions with git add -A")
+    for line in combined.splitlines():
+        if "gh run delete" in line and "--yes" in line:
+            raise Fail("gh run delete does not accept --yes in the GitHub runner CLI")
     assert_publish_workflow_order(
         "publish-test", test, 'git push --force origin "$TARGET_BRANCH"'
     )
