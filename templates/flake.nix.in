@@ -45,17 +45,11 @@ __HOST_IMAGE_SPEC_VALUES__
         pkgs.bash
         pkgs.coreutils
         pkgs.curl
-        pkgs.fzf
-        pkgs.gitMinimal
         pkgs.iproute2
-        pkgs.mosh
+        pkgs.nix
         pkgs.openssh
-        pkgs.patchelf
-        pkgs.starship
         pkgs.systemd
         pkgs.util-linux
-        pkgs.zsh
-        pkgs.zstd
         remoteDevPackage
         hostctrlPackage
         runtimePackage
@@ -66,6 +60,42 @@ __HOST_IMAGE_SPEC_VALUES__
           name = "remote-dev-host-runtime";
           paths = hostRuntimePackages pkgs remoteDevPackage hostctrlPackage runtimePackage;
           pathsToLink = [ "/bin" "/sbin" ];
+        };
+
+      hostDeferredShells = system: pkgs:
+        let
+          mkHostShell = packages: pkgs.mkShellNoCC { inherit packages; };
+          nixSourceBaseline = pkgs.runCommand "remote-dev-nix-source-baseline-${system}" { } ''
+            mkdir -p $out
+            ln -s ${pkgs.path} $out/nixpkgs
+          '';
+        in
+        {
+          git-core = mkHostShell [ pkgs.gitMinimal ];
+          mosh-transport = mkHostShell [ pkgs.mosh ];
+          default-dev-shell-prefill = mkHostShell [
+            pkgs.bashInteractive
+            pkgs.coreutils
+            pkgs.curl
+            pkgs.gnumake
+            pkgs.openssh
+            pkgs.pkg-config
+            pkgs.stdenv.cc.cc.lib
+          ];
+          nix-source-baseline = mkHostShell [ nixSourceBaseline ];
+          shell-startup = mkHostShell [ pkgs.zsh pkgs.starship ];
+          shell-extras = mkHostShell [ pkgs.fzf ];
+          vscode-compat = mkHostShell [ pkgs.patchelf ];
+          compression-tools = mkHostShell [ pkgs.zstd ];
+          dev-diagnostics = mkHostShell [
+            pkgs.clang
+            pkgs.file
+            pkgs.gcc
+            pkgs.glibc.bin
+            pkgs.gnumake
+            pkgs.pkg-config
+            pkgs.strace
+          ];
         };
 
       mkTakeoverRunner = pkgs:
@@ -810,5 +840,6 @@ __HOST_IMAGE_SPEC_VALUES__
       in
       {
         packages = __PACKAGES__;
+        devShells = hostDeferredShells system pkgs;
       });
 }
