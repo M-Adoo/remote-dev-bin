@@ -108,7 +108,11 @@ __HOST_IMAGE_SPEC_VALUES__
           git-core = mkHostGroupBundle {
             name = "git-core";
             closure = [ pkgs.gitMinimal ];
-            commands = [ (mkHostGroupCommand pkgs.gitMinimal "git") ];
+            commands = [
+              (mkHostGroupCommand pkgs.gitMinimal "git")
+              (mkHostGroupCommand pkgs.gitMinimal "git-receive-pack")
+              (mkHostGroupCommand pkgs.gitMinimal "git-upload-pack")
+            ];
           };
           mosh-transport = mkHostGroupBundle {
             name = "mosh-transport";

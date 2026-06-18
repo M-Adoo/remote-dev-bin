@@ -62,7 +62,7 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
         "priority": 0,
         "labels": ["git", "workspace-sync", "bootstrap", "host-default"],
         "inputs": ["pkgs.gitMinimal"],
-        "commands": ["git"],
+        "commands": ["git", "git-receive-pack", "git-upload-pack"],
     },
     {
         "id": "mosh-transport",
@@ -2245,6 +2245,11 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         for package in ["pkgs.coreutils", "pkgs.curl", "pkgs.gnumake", "pkgs.openssh", "pkgs.pkg-config"]:
             if package in default_prefill_block:
                 raise Fail(f"default-dev-shell-prefill must not retain overlapping input {package}")
+        git_core_block = host_group_block("git-core")
+        for command in ["git", "git-receive-pack", "git-upload-pack"]:
+            expected = f'(mkHostGroupCommand pkgs.gitMinimal "{command}")'
+            if expected not in git_core_block:
+                raise Fail(f"rendered flake git-core missing command {command}")
         for expected in [
             'host_config_id = "remote-dev-host-runtime-v2";',
             "remote-dev-runtime = mkLocalBinaryPackage",
@@ -2253,7 +2258,6 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             'mkHostGroupCommand = package: command:',
             'git-core = mkHostGroupBundle {',
             'name = "git-core";',
-            'commands = [ (mkHostGroupCommand pkgs.gitMinimal "git") ];',
             'mosh-transport = mkHostGroupBundle {',
             'name = "mosh-transport";',
             'shell-startup = mkHostGroupBundle {',
@@ -2343,6 +2347,9 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             raise Fail("host groups catalog group set mismatch")
         if groups["default-dev-shell-prefill"]["commands"] != []:
             raise Fail("default dev shell prefill must not expose fake commands")
+        git_commands = [shim["command"] for shim in groups["git-core"]["commands"]]
+        if git_commands != ["git", "git-receive-pack", "git-upload-pack"]:
+            raise Fail("git-core must expose git and wire commands")
         shell_commands = [shim["command"] for shim in groups["shell-startup"]["commands"]]
         if shell_commands != ["zsh", "starship"]:
             raise Fail("shell-startup must only expose zsh and starship")
