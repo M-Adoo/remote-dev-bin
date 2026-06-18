@@ -62,7 +62,7 @@ __HOST_IMAGE_SPEC_VALUES__
           pathsToLink = [ "/bin" "/sbin" ];
         };
 
-      hostDeferredShells = system: pkgs:
+      hostGroupShells = system: pkgs:
         let
           mkHostShell = packages: pkgs.mkShellNoCC { inherit packages; };
           nixSourceBaseline = pkgs.runCommand "remote-dev-nix-source-baseline-${system}" { } ''
@@ -840,6 +840,6 @@ __HOST_IMAGE_SPEC_VALUES__
       in
       {
         packages = __PACKAGES__;
-        devShells = hostDeferredShells system pkgs;
+        devShells = hostGroupShells system pkgs;
       });
 }

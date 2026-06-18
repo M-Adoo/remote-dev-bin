@@ -30,16 +30,16 @@ REPO = "M-Adoo/remote-dev-bin"
 SOURCE_REPO = "M-Adoo/remote-dev"
 HOST_CONFIG_ID = "remote-dev-host-runtime-v2"
 IMAGE_CONTRACT_ID = "remote-dev-cloud-host-v1"
-HOST_IMAGE_SPEC_SCHEMA_VERSION = 6
+HOST_IMAGE_SPEC_SCHEMA_VERSION = 7
 HOST_IMAGE_SCHEMA_VERSION = 3
 FIRSTBOOT_SCHEMA_VERSION = 2
-HOST_DEFERRED_CATALOG_SCHEMA_VERSION = 1
+HOST_GROUPS_CATALOG_SCHEMA_VERSION = 1
 AWS_BOOTSTRAP_FLAKE = "cloud/aws-bootstrap-flake.nix"
 AWS_BOOTSTRAP_LOCK = "cloud/aws-bootstrap-flake.lock"
 NIX_CACHE_DIR = "nix-cache"
 ARTIFACT_DIR = "artifacts"
 HOST_IMAGE_SPEC_DIR = "host-runtime-specs"
-HOST_DEFERRED_DIR = "cloud/host-deferred"
+HOST_GROUPS_DIR = "cloud/host-groups"
 DEFAULT_NIXPKGS_REV = "0000000000000000000000000000000000000000"
 GITHUB_MAX_BLOB_BYTES = 100_000_000
 BOOTSTRAP_SOURCE_MAX_BYTES = 5 * 1024 * 1024
@@ -56,65 +56,65 @@ AWS_AMI_REV_PREFIX_LEN = 12
 NIXOS_AMI_NAME_RE = re.compile(r"^nixos/.+\.([0-9a-f]{12})-(x86_64|aarch64)-linux$")
 
 
-HOST_DEFERRED_GROUPS: tuple[dict[str, Any], ...] = (
+HOST_GROUPS: tuple[dict[str, Any], ...] = (
     {
         "id": "git-core",
-        "auto_prepare": 0,
+        "priority": 0,
         "labels": ["git", "workspace-sync", "bootstrap", "host-default"],
-        "shims": ["git"],
+        "commands": ["git"],
     },
     {
         "id": "mosh-transport",
-        "auto_prepare": 5,
+        "priority": 5,
         "labels": ["terminal", "mosh", "transport", "host-default"],
-        "shims": ["mosh-server"],
+        "commands": ["mosh-server"],
     },
     {
         "id": "default-dev-shell-prefill",
-        "auto_prepare": 10,
+        "priority": 10,
         "labels": [
             "default-shell",
             "store-prefill",
             "workspace-eager-prefill",
             "host-default",
         ],
-        "shims": [],
+        "commands": [],
     },
     {
         "id": "nix-source-baseline",
-        "auto_prepare": 20,
+        "priority": 20,
         "labels": ["nix", "source", "store-prefill", "host-default"],
-        "shims": [],
+        "commands": [],
     },
     {
         "id": "shell-startup",
-        "auto_prepare": 30,
+        "priority": 30,
         "labels": ["shell-baseline", "shell", "interactive", "startup", "host-default"],
-        "shims": ["zsh", "starship"],
+        "commands": ["zsh", "starship"],
     },
     {
         "id": "shell-extras",
-        "auto_prepare": 40,
+        "priority": 40,
         "labels": ["shell", "interactive", "extras", "host-default"],
-        "shims": ["fzf"],
+        "commands": ["fzf"],
     },
     {
         "id": "vscode-compat",
-        "auto_prepare": 45,
+        "priority": 45,
         "labels": ["vscode", "editor", "compat", "host-default"],
-        "shims": ["patchelf"],
+        "commands": ["patchelf"],
     },
     {
         "id": "compression-tools",
-        "auto_prepare": 50,
+        "priority": 50,
         "labels": ["compression", "archive", "host-default"],
-        "shims": ["zstd"],
+        "commands": ["zstd"],
     },
     {
         "id": "dev-diagnostics",
-        "auto_prepare": 80,
+        "priority": 80,
         "labels": ["diagnostic", "cc", "build-debug", "background", "host-default"],
-        "shims": ["cc", "gcc", "clang", "pkg-config", "make", "strace", "file", "ldd"],
+        "commands": ["cc", "gcc", "clang", "pkg-config", "make", "strace", "file", "ldd"],
     },
 )
 
@@ -482,9 +482,9 @@ def remove_generated_paths(branch_dir: Path) -> None:
         "remote-dev-aarch64-darwin.tar.gz",
         "remote-dev-aarch64-darwin.tar.gz.sha256",
         "cloud/host-service-image.json",
-        "cloud/host-deferred-catalog-x86_64-linux.json",
-        "cloud/host-deferred-catalog-aarch64-linux.json",
-        HOST_DEFERRED_DIR,
+        "cloud/host-groups-catalog-x86_64-linux.json",
+        "cloud/host-groups-catalog-aarch64-linux.json",
+        HOST_GROUPS_DIR,
         "cloud/aws-builder-flake.nix",
         "cloud/aws-builder-flake.lock",
         AWS_BOOTSTRAP_FLAKE,
@@ -892,86 +892,90 @@ def host_runtime_closure_manifest_file(system: str) -> str:
     return f"cloud/host-runtime-closure-{system}.json"
 
 
-def host_deferred_catalog_file(system: str) -> str:
-    return f"cloud/host-deferred-catalog-{system}.json"
+def host_groups_catalog_file(system: str) -> str:
+    return f"cloud/host-groups-catalog-{system}.json"
 
 
-def host_deferred_closure_manifest_file(group_id: str, system: str) -> str:
-    return f"{HOST_DEFERRED_DIR}/{group_id}-{system}.json"
+def host_groups_closure_manifest_file(group_id: str, system: str) -> str:
+    return f"{HOST_GROUPS_DIR}/{group_id}-{system}.json"
 
 
-def host_deferred_installable(system: str, group_id: str) -> str:
+def host_groups_installable(system: str, group_id: str) -> str:
     return f"devShells.{system}.{group_id}"
 
 
-def placeholder_host_deferred_store_path(system: str, group_id: str) -> str:
-    return f"/nix/store/00000000000000000000000000000000-remote-dev-host-deferred-{group_id}-{system}"
+def placeholder_host_groups_store_path(system: str, group_id: str) -> str:
+    return f"/nix/store/00000000000000000000000000000000-remote-dev-host-groups-{group_id}-{system}"
 
 
-def host_deferred_group_fingerprint(group: dict[str, Any], system: str) -> str:
+def host_groups_group_fingerprint(group: dict[str, Any], system: str) -> str:
     raw = json.dumps(
         {
-            "schema_version": HOST_DEFERRED_CATALOG_SCHEMA_VERSION,
+            "schema_version": HOST_GROUPS_CATALOG_SCHEMA_VERSION,
             "system": system,
+            "scope": "host",
             "id": group["id"],
-            "auto_prepare": group["auto_prepare"],
+            "policy": group.get("policy", "warmup"),
+            "priority": group["priority"],
             "labels": group["labels"],
-            "shims": group["shims"],
-            "installable": host_deferred_installable(system, group["id"]),
-            "closure_manifest_file": host_deferred_closure_manifest_file(group["id"], system),
+            "commands": group["commands"],
+            "installable": host_groups_installable(system, group["id"]),
+            "closure_manifest_file": host_groups_closure_manifest_file(group["id"], system),
         },
         sort_keys=True,
         separators=(",", ":"),
     )
-    return "host-deferred-group-v1:" + hashlib.sha256(raw.encode()).hexdigest()
+    return "host-groups-group-v1:" + hashlib.sha256(raw.encode()).hexdigest()
 
 
-def host_deferred_catalog_groups(system: str) -> list[dict[str, Any]]:
+def host_groups_catalog_groups(system: str) -> list[dict[str, Any]]:
     groups = []
-    for group in HOST_DEFERRED_GROUPS:
+    for group in HOST_GROUPS:
         group_id = group["id"]
         groups.append(
             {
+                "scope": "host",
                 "id": group_id,
-                "auto_prepare": group["auto_prepare"],
+                "policy": group.get("policy", "warmup"),
+                "priority": group["priority"],
                 "labels": list(group["labels"]),
-                "shims": [{"command": command} for command in group["shims"]],
-                "installable": host_deferred_installable(system, group_id),
-                "closure_manifest_file": host_deferred_closure_manifest_file(group_id, system),
-                "fingerprint": host_deferred_group_fingerprint(group, system),
+                "commands": [{"command": command} for command in group["commands"]],
+                "installable": host_groups_installable(system, group_id),
+                "closure_manifest_file": host_groups_closure_manifest_file(group_id, system),
+                "fingerprint": host_groups_group_fingerprint(group, system),
             }
         )
     return groups
 
 
-def host_deferred_catalog_fingerprint(system: str, groups: list[dict[str, Any]]) -> str:
+def host_groups_catalog_fingerprint(system: str, groups: list[dict[str, Any]]) -> str:
     raw = json.dumps(
         {
-            "schema_version": HOST_DEFERRED_CATALOG_SCHEMA_VERSION,
+            "schema_version": HOST_GROUPS_CATALOG_SCHEMA_VERSION,
             "system": system,
             "groups": groups,
         },
         sort_keys=True,
         separators=(",", ":"),
     )
-    return "host-deferred-catalog-v1:" + hashlib.sha256(raw.encode()).hexdigest()
+    return "host-groups-catalog-v1:" + hashlib.sha256(raw.encode()).hexdigest()
 
 
-def write_host_deferred_catalogs(
+def write_host_groups_catalogs(
     branch_dir: Path,
     config: TargetConfig,
-    deferred_roots: dict[tuple[str, str], str] | None = None,
+    group_roots: dict[tuple[str, str], str] | None = None,
 ) -> dict[str, dict[str, str]]:
     catalogs: dict[str, dict[str, str]] = {}
     for arch in config.host_arches:
         system = f"{arch}-linux"
-        groups = host_deferred_catalog_groups(system)
-        fingerprint = host_deferred_catalog_fingerprint(system, groups)
-        catalog_file = host_deferred_catalog_file(system)
+        groups = host_groups_catalog_groups(system)
+        fingerprint = host_groups_catalog_fingerprint(system, groups)
+        catalog_file = host_groups_catalog_file(system)
         json_dump(
             branch_dir / catalog_file,
             {
-                "schema_version": HOST_DEFERRED_CATALOG_SCHEMA_VERSION,
+                "schema_version": HOST_GROUPS_CATALOG_SCHEMA_VERSION,
                 "system": system,
                 "fingerprint": fingerprint,
                 "groups": groups,
@@ -979,8 +983,8 @@ def write_host_deferred_catalogs(
         )
         for group in groups:
             group_id = group["id"]
-            store_path = (deferred_roots or {}).get(
-                (system, group_id), placeholder_host_deferred_store_path(system, group_id)
+            store_path = (group_roots or {}).get(
+                (system, group_id), placeholder_host_groups_store_path(system, group_id)
             )
             manifest_path = branch_dir / group["closure_manifest_file"]
             if not manifest_path.is_file():
@@ -1005,14 +1009,14 @@ def write_host_specs(
     config: TargetConfig,
     nixpkgs_rev: str,
     trusted_public_key: str,
-    host_deferred_catalogs: dict[str, dict[str, str]],
+    host_groups_catalogs: dict[str, dict[str, str]],
     runtimes: dict[str, str] | None = None,
 ) -> None:
     for arch in config.host_arches:
         system = f"{arch}-linux"
         runtime_store_path = (runtimes or {}).get(system, placeholder_runtime_store_path(system))
         runtime_closure_manifest = host_runtime_closure_manifest_file(system)
-        host_deferred_catalog = host_deferred_catalogs[system]
+        host_groups_catalog = host_groups_catalogs[system]
         spec = {
             "schema_version": HOST_IMAGE_SPEC_SCHEMA_VERSION,
             "baseline_id": HOST_CONFIG_ID,
@@ -1035,8 +1039,8 @@ def write_host_specs(
                 "system": system,
                 "runtime_store_path": runtime_store_path,
                 "runtime_closure_manifest_file": runtime_closure_manifest,
-                "host_deferred_catalog_file": host_deferred_catalog["file"],
-                "host_deferred_catalog_fingerprint": host_deferred_catalog["fingerprint"],
+                "host_groups_catalog_file": host_groups_catalog["file"],
+                "host_groups_catalog_fingerprint": host_groups_catalog["fingerprint"],
             },
             "nix_cache": {
                 "substituter_url": f"https://raw.githubusercontent.com/{REPO}/{config.branch}/{NIX_CACHE_DIR}",
@@ -1124,7 +1128,7 @@ def maybe_realize_runtime_and_cache(
     if not signing_key:
         return {}, {}
     runtimes: dict[str, str] = {}
-    deferred_roots: dict[tuple[str, str], str] = {}
+    group_roots: dict[tuple[str, str], str] = {}
     cache_roots: list[str] = []
     for arch in config.host_arches:
         system = f"{arch}-linux"
@@ -1142,10 +1146,10 @@ def maybe_realize_runtime_and_cache(
                 "paths": nix_path_info_recursive(branch_dir, output),
             },
         )
-        for group in host_deferred_catalog_groups(system):
+        for group in host_groups_catalog_groups(system):
             group_id = group["id"]
             output = nix_build_store_path(branch_dir, system, f"path:{branch_dir}#{group['installable']}")
-            deferred_roots[(system, group_id)] = output
+            group_roots[(system, group_id)] = output
             cache_roots.append(output)
             json_dump(
                 branch_dir / group["closure_manifest_file"],
@@ -1160,7 +1164,7 @@ def maybe_realize_runtime_and_cache(
                 },
             )
     write_signed_nix_cache(branch_dir, signing_key, trusted_public_key, cache_roots)
-    return runtimes, deferred_roots
+    return runtimes, group_roots
 
 
 def write_signed_nix_cache(
@@ -1558,11 +1562,11 @@ def cmd_render_tree(args: argparse.Namespace) -> None:
     render_flake(repo_root, branch_dir, config, copied, version)
     nixpkgs_rev = read_nixpkgs_rev(branch_dir, repo_root)
     write_nix_cache_info(branch_dir, trusted_key)
-    runtimes, deferred_roots = maybe_realize_runtime_and_cache(
+    runtimes, group_roots = maybe_realize_runtime_and_cache(
         branch_dir, config, args.nix_cache_signing_key_file, trusted_key
     )
-    host_deferred_catalogs = write_host_deferred_catalogs(branch_dir, config, deferred_roots)
-    write_host_specs(branch_dir, config, nixpkgs_rev, trusted_key, host_deferred_catalogs, runtimes)
+    host_groups_catalogs = write_host_groups_catalogs(branch_dir, config, group_roots)
+    write_host_specs(branch_dir, config, nixpkgs_rev, trusted_key, host_groups_catalogs, runtimes)
     closure_audits = (
         audit_runtime_closures(branch_dir, config)
         if args.nix_cache_signing_key_file
@@ -1587,8 +1591,8 @@ def cmd_render_tree(args: argparse.Namespace) -> None:
         },
         "remote_dev_systems": list(config.remote_dev_systems),
         "host_arches": list(config.host_arches),
-        "host_deferred_catalogs": {
-            system: catalog["file"] for system, catalog in sorted(host_deferred_catalogs.items())
+        "host_groups_catalogs": {
+            system: catalog["file"] for system, catalog in sorted(host_groups_catalogs.items())
         },
         "artifacts": copied,
         "host_service_image": "cloud/host-service-image.json"
@@ -1654,66 +1658,74 @@ def validate_tree(branch_dir: Path, config: TargetConfig) -> None:
         if not closure.is_file():
             raise Fail(f"{spec_path}: closure manifest is missing")
         system = f"{arch}-linux"
-        catalog_file = spec["bootstrap"].get("host_deferred_catalog_file")
-        catalog_fingerprint = spec["bootstrap"].get("host_deferred_catalog_fingerprint")
-        expected_catalog_file = host_deferred_catalog_file(system)
+        catalog_file = spec["bootstrap"].get("host_groups_catalog_file")
+        catalog_fingerprint = spec["bootstrap"].get("host_groups_catalog_fingerprint")
+        expected_catalog_file = host_groups_catalog_file(system)
         if catalog_file != expected_catalog_file:
-            raise Fail(f"{spec_path}: host deferred catalog file mismatch")
+            raise Fail(f"{spec_path}: host groups catalog file mismatch")
         catalog_path = branch_dir / catalog_file
         if not catalog_path.is_file():
-            raise Fail(f"{spec_path}: host deferred catalog is missing")
+            raise Fail(f"{spec_path}: host groups catalog is missing")
         catalog = json_load(catalog_path)
         groups = catalog.get("groups")
-        if catalog.get("schema_version") != HOST_DEFERRED_CATALOG_SCHEMA_VERSION:
+        if catalog.get("schema_version") != HOST_GROUPS_CATALOG_SCHEMA_VERSION:
             raise Fail(f"{catalog_file}: schema_version mismatch")
         if catalog.get("system") != system:
             raise Fail(f"{catalog_file}: system mismatch")
         if not isinstance(groups, list) or not groups:
             raise Fail(f"{catalog_file}: groups must be a non-empty list")
         if catalog.get("fingerprint") != catalog_fingerprint:
-            raise Fail(f"{spec_path}: host deferred catalog fingerprint mismatch")
-        expected_fingerprint = host_deferred_catalog_fingerprint(system, groups)
+            raise Fail(f"{spec_path}: host groups catalog fingerprint mismatch")
+        expected_fingerprint = host_groups_catalog_fingerprint(system, groups)
         if catalog_fingerprint != expected_fingerprint:
             raise Fail(f"{catalog_file}: fingerprint does not match catalog content")
         seen_groups: set[str] = set()
         seen_commands: set[str] = set()
         for group in groups:
             if not isinstance(group, dict):
-                raise Fail(f"{catalog_file}: host deferred group must be an object")
+                raise Fail(f"{catalog_file}: host groups group must be an object")
             group_id = group.get("id")
             if not isinstance(group_id, str) or not group_id:
-                raise Fail(f"{catalog_file}: host deferred group is missing id")
+                raise Fail(f"{catalog_file}: host groups group is missing id")
             if group_id in seen_groups:
-                raise Fail(f"{catalog_file}: duplicate host deferred group {group_id}")
+                raise Fail(f"{catalog_file}: duplicate host groups group {group_id}")
             seen_groups.add(group_id)
+            if group.get("scope") != "host":
+                raise Fail(f"{catalog_file}: group {group_id} scope must be host")
+            policy = group.get("policy")
+            if policy not in {"blocking", "warmup", "on_demand"}:
+                raise Fail(f"{catalog_file}: group {group_id} has invalid policy")
+            priority = group.get("priority")
+            if not isinstance(priority, int) or priority < 0:
+                raise Fail(f"{catalog_file}: group {group_id} priority must be a non-negative integer")
             installable = group.get("installable")
-            if installable != host_deferred_installable(system, group_id):
+            if installable != host_groups_installable(system, group_id):
                 raise Fail(f"{catalog_file}: group {group_id} installable mismatch")
             closure_manifest_file = group.get("closure_manifest_file")
-            if closure_manifest_file != host_deferred_closure_manifest_file(group_id, system):
+            if closure_manifest_file != host_groups_closure_manifest_file(group_id, system):
                 raise Fail(f"{catalog_file}: group {group_id} closure manifest mismatch")
             if not (branch_dir / closure_manifest_file).is_file():
                 raise Fail(f"{catalog_file}: group {group_id} closure manifest is missing")
-            shims = group.get("shims")
-            if not isinstance(shims, list):
-                raise Fail(f"{catalog_file}: group {group_id} shims must be a list")
-            for shim in shims:
-                command = shim.get("command") if isinstance(shim, dict) else None
+            commands = group.get("commands")
+            if not isinstance(commands, list):
+                raise Fail(f"{catalog_file}: group {group_id} commands must be a list")
+            for command_entry in commands:
+                command = command_entry.get("command") if isinstance(command_entry, dict) else None
                 if not isinstance(command, str) or not command:
-                    raise Fail(f"{catalog_file}: group {group_id} has invalid shim")
+                    raise Fail(f"{catalog_file}: group {group_id} has invalid command")
                 if command in seen_commands:
-                    raise Fail(f"{catalog_file}: duplicate host deferred command {command}")
+                    raise Fail(f"{catalog_file}: duplicate host groups command {command}")
                 seen_commands.add(command)
-        expected_groups = {group["id"] for group in HOST_DEFERRED_GROUPS}
+        expected_groups = {group["id"] for group in HOST_GROUPS}
         if seen_groups != expected_groups:
-            raise Fail(f"{catalog_file}: host deferred groups mismatch")
+            raise Fail(f"{catalog_file}: host groups groups mismatch")
     missing_arches = {"x86_64", "aarch64"} - set(config.host_arches)
     for arch in missing_arches:
         if (branch_dir / HOST_IMAGE_SPEC_DIR / f"{arch}.json").exists():
             raise Fail(f"unexpected host runtime spec for unbuilt arch {arch}")
         system = f"{arch}-linux"
-        if (branch_dir / host_deferred_catalog_file(system)).exists():
-            raise Fail(f"unexpected host deferred catalog for unbuilt arch {arch}")
+        if (branch_dir / host_groups_catalog_file(system)).exists():
+            raise Fail(f"unexpected host groups catalog for unbuilt arch {arch}")
 
 
 def cmd_validate_tree(args: argparse.Namespace) -> None:
@@ -2109,7 +2121,7 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             'host_config_id = "remote-dev-host-runtime-v2";',
             "remote-dev-runtime = mkLocalBinaryPackage",
             "remote-dev-host-runtime = mkHostRuntimePackage pkgs remote-dev remote-dev-hostctrl remote-dev-runtime;",
-            "devShells = hostDeferredShells system pkgs;",
+            "devShells = hostGroupShells system pkgs;",
             "git-core = mkHostShell [ pkgs.gitMinimal ];",
             "mosh-transport = mkHostShell [ pkgs.mosh ];",
             "shell-startup = mkHostShell [ pkgs.zsh pkgs.starship ];",
@@ -2138,7 +2150,7 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             if expected not in flake:
                 raise Fail(f"rendered flake is missing {expected}")
         foundation_block = flake.split("hostRuntimePackages =", 1)[1].split("mkHostRuntimePackage", 1)[0]
-        for deferred_tool in [
+        for group_tool in [
             "pkgs.fzf",
             "pkgs.gitMinimal",
             "pkgs.mosh",
@@ -2147,16 +2159,16 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             "pkgs.zsh",
             "pkgs.zstd",
         ]:
-            if deferred_tool in foundation_block:
-                raise Fail(f"host foundation must not include deferred tool {deferred_tool}")
+            if group_tool in foundation_block:
+                raise Fail(f"host foundation must not include host group tool {group_tool}")
         if "pkgs.nix" not in foundation_block:
             raise Fail("host foundation must include pkgs.nix")
         if any(line.strip() == "pkgs.git" for line in flake.splitlines()):
             raise Fail("host baseline must use pkgs.gitMinimal instead of pkgs.git")
         spec_path = branch / "host-runtime-specs/aarch64.json"
         spec = json_load(spec_path)
-        if spec["schema_version"] != 6:
-            raise Fail("runtime spec did not use schema v6")
+        if spec["schema_version"] != 7:
+            raise Fail("runtime spec did not use schema v7")
         if spec["firstboot_schema_version"] != 2:
             raise Fail("runtime spec did not use firstboot schema v2")
         if spec["baseline_id"] != "remote-dev-host-runtime-v2":
@@ -2167,32 +2179,32 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             raise Fail("runtime spec did not point at the runtime closure manifest")
         if not (branch / "cloud/host-runtime-closure-aarch64-linux.json").is_file():
             raise Fail("runtime closure manifest was not rendered")
-        if spec["bootstrap"]["host_deferred_catalog_file"] != "cloud/host-deferred-catalog-aarch64-linux.json":
-            raise Fail("runtime spec did not point at the host deferred catalog")
-        catalog = json_load(branch / "cloud/host-deferred-catalog-aarch64-linux.json")
-        if catalog["fingerprint"] != spec["bootstrap"]["host_deferred_catalog_fingerprint"]:
-            raise Fail("runtime spec host deferred catalog fingerprint mismatch")
+        if spec["bootstrap"]["host_groups_catalog_file"] != "cloud/host-groups-catalog-aarch64-linux.json":
+            raise Fail("runtime spec did not point at the host groups catalog")
+        catalog = json_load(branch / "cloud/host-groups-catalog-aarch64-linux.json")
+        if catalog["fingerprint"] != spec["bootstrap"]["host_groups_catalog_fingerprint"]:
+            raise Fail("runtime spec host groups catalog fingerprint mismatch")
         groups = {group["id"]: group for group in catalog["groups"]}
-        if set(groups) != {group["id"] for group in HOST_DEFERRED_GROUPS}:
-            raise Fail("host deferred catalog group set mismatch")
-        if groups["default-dev-shell-prefill"]["shims"] != []:
-            raise Fail("default dev shell prefill must not expose fake shims")
-        shell_shims = [shim["command"] for shim in groups["shell-startup"]["shims"]]
-        if shell_shims != ["zsh", "starship"]:
+        if set(groups) != {group["id"] for group in HOST_GROUPS}:
+            raise Fail("host groups catalog group set mismatch")
+        if groups["default-dev-shell-prefill"]["commands"] != []:
+            raise Fail("default dev shell prefill must not expose fake commands")
+        shell_commands = [shim["command"] for shim in groups["shell-startup"]["commands"]]
+        if shell_commands != ["zsh", "starship"]:
             raise Fail("shell-startup must only expose zsh and starship")
         for group in groups.values():
             if not group.get("installable"):
-                raise Fail("host deferred group missing installable")
+                raise Fail("host groups group missing installable")
             if not (branch / group["closure_manifest_file"]).is_file():
-                raise Fail("host deferred closure manifest was not rendered")
+                raise Fail("host groups closure manifest was not rendered")
         if (branch / AWS_BOOTSTRAP_FLAKE).exists() or (branch / AWS_BOOTSTRAP_LOCK).exists():
             raise Fail("AWS bootstrap flake must not be rendered for host runtime firstboot")
         if (branch / "host-image-specs/x86_64.json").exists():
             raise Fail("aarch64-only publish rendered x86_64 host spec")
         if (branch / "host-runtime-specs/x86_64.json").exists():
             raise Fail("aarch64-only publish rendered x86_64 runtime spec")
-        if (branch / "cloud/host-deferred-catalog-x86_64-linux.json").exists():
-            raise Fail("aarch64-only publish rendered x86_64 host deferred catalog")
+        if (branch / "cloud/host-groups-catalog-x86_64-linux.json").exists():
+            raise Fail("aarch64-only publish rendered x86_64 host groups catalog")
     print("self-test passed")
 
 

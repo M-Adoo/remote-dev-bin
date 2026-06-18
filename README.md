@@ -25,8 +25,8 @@ Both refs use the same generated artifact schema:
 - `flake.lock`
 - `host-runtime-specs/<arch>.json`
 - `cloud/host-runtime-closure-<system>.json`
-- `cloud/host-deferred-catalog-<system>.json`
-- `cloud/host-deferred/<group>-<system>.json`
+- `cloud/host-groups-catalog-<system>.json`
+- `cloud/host-groups/<group>-<system>.json`
 - `cloud/host-service-image.json`
 - `nix-cache/`
 
