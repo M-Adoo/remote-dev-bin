@@ -64,43 +64,125 @@ __HOST_IMAGE_SPEC_VALUES__
 
       hostGroupPackages = system: pkgs:
         let
-          mkHostGroupBundle = name: paths: pkgs.buildEnv {
-            name = "remote-dev-host-group-${name}-${system}";
-            inherit paths;
-            pathsToLink = [ "/bin" "/sbin" ];
-            ignoreCollisions = true;
+          mkHostGroupCommand = package: command: {
+            inherit package command;
+            relativePath = "bin/${command}";
           };
+          mkHostGroupBundle =
+            { name
+            , closure
+            , commands ? []
+            }:
+            pkgs.runCommand "remote-dev-host-group-${name}-${system}" { } (
+              let
+                linkClosure = pkgs.lib.concatImapStringsSep "\n" (index: package: ''
+                  ln -s ${package} "$out/.remote-dev/closure-roots/${toString index}"
+                '') closure;
+                linkCommands = pkgs.lib.concatMapStringsSep "\n" (spec: ''
+                  source_path="${spec.package}/${spec.relativePath}"
+                  output_path="$out/${spec.relativePath}"
+                  if [ ! -e "$source_path" ]; then
+                    echo "host group ${name}: missing command ${spec.command} at $source_path" >&2
+                    exit 1
+                  fi
+                  if [ -e "$output_path" ]; then
+                    echo "host group ${name}: duplicate command output ${spec.relativePath}" >&2
+                    exit 1
+                  fi
+                  mkdir -p "$(dirname "$output_path")"
+                  ln -s "$source_path" "$output_path"
+                '') commands;
+              in
+              ''
+                mkdir -p "$out/.remote-dev/closure-roots"
+                ${linkClosure}
+                ${linkCommands}
+              ''
+            );
           nixSourceBaseline = pkgs.runCommand "remote-dev-nix-source-baseline-${system}" { } ''
             mkdir -p $out
             ln -s ${pkgs.path} $out/nixpkgs
           '';
         in
         {
-          git-core = mkHostGroupBundle "git-core" [ pkgs.gitMinimal ];
-          mosh-transport = mkHostGroupBundle "mosh-transport" [ pkgs.mosh ];
-          default-dev-shell-prefill = mkHostGroupBundle "default-dev-shell-prefill" [
-            pkgs.bashInteractive
-            pkgs.coreutils
-            pkgs.curl
-            pkgs.gnumake
-            pkgs.openssh
-            pkgs.pkg-config
-            pkgs.stdenv.cc.cc.lib
-          ];
-          nix-source-baseline = mkHostGroupBundle "nix-source-baseline" [ nixSourceBaseline ];
-          shell-startup = mkHostGroupBundle "shell-startup" [ pkgs.zsh pkgs.starship ];
-          shell-extras = mkHostGroupBundle "shell-extras" [ pkgs.fzf ];
-          vscode-compat = mkHostGroupBundle "vscode-compat" [ pkgs.patchelf ];
-          compression-tools = mkHostGroupBundle "compression-tools" [ pkgs.zstd ];
-          dev-diagnostics = mkHostGroupBundle "dev-diagnostics" [
-            pkgs.clang
-            pkgs.file
-            pkgs.gcc
-            pkgs.glibc.bin
-            pkgs.gnumake
-            pkgs.pkg-config
-            pkgs.strace
-          ];
+          git-core = mkHostGroupBundle {
+            name = "git-core";
+            closure = [ pkgs.gitMinimal ];
+            commands = [ (mkHostGroupCommand pkgs.gitMinimal "git") ];
+          };
+          mosh-transport = mkHostGroupBundle {
+            name = "mosh-transport";
+            closure = [ pkgs.mosh ];
+            commands = [ (mkHostGroupCommand pkgs.mosh "mosh-server") ];
+          };
+          default-dev-shell-prefill = mkHostGroupBundle {
+            name = "default-dev-shell-prefill";
+            closure = [
+              pkgs.bashInteractive
+              pkgs.stdenv.cc.cc.lib
+            ];
+          };
+          nix-source-baseline = mkHostGroupBundle {
+            name = "nix-source-baseline";
+            closure = [ nixSourceBaseline ];
+          };
+          shell-startup = mkHostGroupBundle {
+            name = "shell-startup";
+            closure = [ pkgs.zsh pkgs.starship ];
+            commands = [
+              (mkHostGroupCommand pkgs.zsh "zsh")
+              (mkHostGroupCommand pkgs.starship "starship")
+            ];
+          };
+          shell-extras = mkHostGroupBundle {
+            name = "shell-extras";
+            closure = [ pkgs.fzf ];
+            commands = [ (mkHostGroupCommand pkgs.fzf "fzf") ];
+          };
+          vscode-compat = mkHostGroupBundle {
+            name = "vscode-compat";
+            closure = [ pkgs.patchelf ];
+            commands = [ (mkHostGroupCommand pkgs.patchelf "patchelf") ];
+          };
+          compression-tools = mkHostGroupBundle {
+            name = "compression-tools";
+            closure = [ pkgs.zstd ];
+            commands = [ (mkHostGroupCommand pkgs.zstd "zstd") ];
+          };
+          build-baseline = mkHostGroupBundle {
+            name = "build-baseline";
+            closure = [ pkgs.gnumake pkgs.pkg-config ];
+            commands = [
+              (mkHostGroupCommand pkgs.pkg-config "pkg-config")
+              (mkHostGroupCommand pkgs.gnumake "make")
+            ];
+          };
+          c-toolchain-gcc = mkHostGroupBundle {
+            name = "c-toolchain-gcc";
+            closure = [ pkgs.gcc ];
+            commands = [
+              (mkHostGroupCommand pkgs.gcc "cc")
+              (mkHostGroupCommand pkgs.gcc "gcc")
+            ];
+          };
+          c-toolchain-clang = mkHostGroupBundle {
+            name = "c-toolchain-clang";
+            closure = [ pkgs.clang ];
+            commands = [ (mkHostGroupCommand pkgs.clang "clang") ];
+          };
+          dev-diagnostics = mkHostGroupBundle {
+            name = "dev-diagnostics";
+            closure = [
+              pkgs.file
+              pkgs.glibc.bin
+              pkgs.strace
+            ];
+            commands = [
+              (mkHostGroupCommand pkgs.strace "strace")
+              (mkHostGroupCommand pkgs.file "file")
+              (mkHostGroupCommand pkgs.glibc.bin "ldd")
+            ];
+          };
         };
 
       mkTakeoverRunner = pkgs:

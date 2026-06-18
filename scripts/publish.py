@@ -61,12 +61,14 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
         "id": "git-core",
         "priority": 0,
         "labels": ["git", "workspace-sync", "bootstrap", "host-default"],
+        "inputs": ["pkgs.gitMinimal"],
         "commands": ["git"],
     },
     {
         "id": "mosh-transport",
         "priority": 5,
         "labels": ["terminal", "mosh", "transport", "host-default"],
+        "inputs": ["pkgs.mosh"],
         "commands": ["mosh-server"],
     },
     {
@@ -78,45 +80,106 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
             "workspace-eager-prefill",
             "host-default",
         ],
+        "inputs": ["pkgs.bashInteractive", "pkgs.stdenv.cc.cc.lib"],
         "commands": [],
     },
     {
         "id": "nix-source-baseline",
         "priority": 20,
         "labels": ["nix", "source", "store-prefill", "host-default"],
+        "inputs": ["nixSourceBaseline"],
         "commands": [],
     },
     {
         "id": "shell-startup",
         "priority": 30,
         "labels": ["shell-baseline", "shell", "interactive", "startup", "host-default"],
+        "inputs": ["pkgs.zsh", "pkgs.starship"],
         "commands": ["zsh", "starship"],
     },
     {
         "id": "shell-extras",
         "priority": 40,
         "labels": ["shell", "interactive", "extras", "host-default"],
+        "inputs": ["pkgs.fzf"],
         "commands": ["fzf"],
     },
     {
         "id": "vscode-compat",
         "priority": 45,
         "labels": ["vscode", "editor", "compat", "host-default"],
+        "inputs": ["pkgs.patchelf"],
         "commands": ["patchelf"],
     },
     {
         "id": "compression-tools",
         "priority": 50,
         "labels": ["compression", "archive", "host-default"],
+        "inputs": ["pkgs.zstd"],
         "commands": ["zstd"],
+    },
+    {
+        "id": "build-baseline",
+        "priority": 60,
+        "labels": ["build", "tooling", "store-prefill", "workspace-eager-prefill", "host-default"],
+        "inputs": ["pkgs.gnumake", "pkgs.pkg-config"],
+        "commands": ["pkg-config", "make"],
+    },
+    {
+        "id": "c-toolchain-gcc",
+        "priority": 70,
+        "labels": ["diagnostic", "cc", "gcc", "build-debug", "background", "host-default"],
+        "inputs": ["pkgs.gcc"],
+        "commands": ["cc", "gcc"],
+    },
+    {
+        "id": "c-toolchain-clang",
+        "priority": 75,
+        "labels": ["diagnostic", "clang", "build-debug", "background", "host-default"],
+        "inputs": ["pkgs.clang"],
+        "commands": ["clang"],
     },
     {
         "id": "dev-diagnostics",
         "priority": 80,
-        "labels": ["diagnostic", "cc", "build-debug", "background", "host-default"],
-        "commands": ["cc", "gcc", "clang", "pkg-config", "make", "strace", "file", "ldd"],
+        "labels": ["diagnostic", "build-debug", "background", "host-default"],
+        "inputs": ["pkgs.file", "pkgs.glibc.bin", "pkgs.strace"],
+        "commands": ["strace", "file", "ldd"],
     },
 )
+
+
+def validate_host_group_model() -> None:
+    seen_ids: set[str] = set()
+    seen_inputs: dict[str, str] = {}
+    seen_commands: dict[str, str] = {}
+    for group in HOST_GROUPS:
+        group_id = group.get("id")
+        if not isinstance(group_id, str) or not group_id:
+            raise Fail("host group id must be a non-empty string")
+        if group_id in seen_ids:
+            raise Fail(f"duplicate host group id {group_id}")
+        seen_ids.add(group_id)
+        inputs = group.get("inputs")
+        if not isinstance(inputs, list):
+            raise Fail(f"host group {group_id} inputs must be a list")
+        for package in inputs:
+            if not isinstance(package, str) or not package:
+                raise Fail(f"host group {group_id} has invalid input {package!r}")
+            owner = seen_inputs.get(package)
+            if owner is not None:
+                raise Fail(f"host group input {package} is owned by both {owner} and {group_id}")
+            seen_inputs[package] = group_id
+        commands = group.get("commands")
+        if not isinstance(commands, list):
+            raise Fail(f"host group {group_id} commands must be a list")
+        for command in commands:
+            if not isinstance(command, str) or not command:
+                raise Fail(f"host group {group_id} has invalid command {command!r}")
+            owner = seen_commands.get(command)
+            if owner is not None:
+                raise Fail(f"host group command {command} is owned by both {owner} and {group_id}")
+            seen_commands[command] = group_id
 
 
 @dataclass(frozen=True)
@@ -940,6 +1003,7 @@ def host_groups_group_fingerprint(group: dict[str, Any], system: str, store_path
 def host_groups_catalog_groups(
     system: str, group_roots: dict[tuple[str, str], str] | None = None
 ) -> list[dict[str, Any]]:
+    validate_host_group_model()
     groups = []
     for group in HOST_GROUPS:
         group_id = group["id"]
@@ -1620,6 +1684,7 @@ def cmd_render_tree(args: argparse.Namespace) -> None:
 
 
 def validate_tree(branch_dir: Path, config: TargetConfig) -> None:
+    validate_host_group_model()
     for relative in [
         "build-manifest.json",
         "flake.nix",
@@ -1701,6 +1766,8 @@ def validate_tree(branch_dir: Path, config: TargetConfig) -> None:
             if group_id in seen_groups:
                 raise Fail(f"{catalog_file}: duplicate host groups group {group_id}")
             seen_groups.add(group_id)
+            if group_id not in expected_group_specs:
+                raise Fail(f"{catalog_file}: unexpected host groups group {group_id}")
             if "scope" in group or "policy" in group:
                 raise Fail(f"{catalog_file}: group {group_id} must not include shell scope or policy")
             priority = group.get("priority")
@@ -2143,21 +2210,76 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         )
         cmd_render_tree(ns)
         flake = (branch / "flake.nix").read_text()
+        def host_group_block(group_id: str) -> str:
+            marker = f"          {group_id} = mkHostGroupBundle {{"
+            start = flake.find(marker)
+            if start < 0:
+                raise Fail(f"rendered flake is missing host group block {group_id}")
+            ends = [
+                flake.find(f"\n          {candidate['id']} = mkHostGroupBundle {{", start + 1)
+                for candidate in HOST_GROUPS
+                if candidate["id"] != group_id
+            ]
+            ends = [end for end in ends if end >= 0]
+            fallback = flake.find("\n        };\n\n      mkTakeoverRunner", start)
+            if fallback >= 0:
+                ends.append(fallback)
+            if not ends:
+                raise Fail(f"rendered flake host group block {group_id} has no end")
+            return flake[start : min(ends)]
+
+        group_inputs = {
+            group["id"]: set(group["inputs"])
+            for group in HOST_GROUPS
+        }
+        all_group_inputs = set().union(*group_inputs.values())
+        for group_id, inputs in group_inputs.items():
+            block = host_group_block(group_id)
+            for package in sorted(inputs):
+                if package not in block:
+                    raise Fail(f"rendered flake group {group_id} missing input {package}")
+            for package in sorted(all_group_inputs - inputs):
+                if package in block:
+                    raise Fail(f"rendered flake group {group_id} includes input owned by another group: {package}")
+        default_prefill_block = host_group_block("default-dev-shell-prefill")
+        for package in ["pkgs.coreutils", "pkgs.curl", "pkgs.gnumake", "pkgs.openssh", "pkgs.pkg-config"]:
+            if package in default_prefill_block:
+                raise Fail(f"default-dev-shell-prefill must not retain overlapping input {package}")
         for expected in [
             'host_config_id = "remote-dev-host-runtime-v2";',
             "remote-dev-runtime = mkLocalBinaryPackage",
             "remote-dev-host-runtime = mkHostRuntimePackage pkgs remote-dev remote-dev-hostctrl remote-dev-runtime;",
             'hostGroupPackages = system: pkgs:',
-            'git-core = mkHostGroupBundle "git-core" [ pkgs.gitMinimal ];',
-            'mosh-transport = mkHostGroupBundle "mosh-transport" [ pkgs.mosh ];',
-            'shell-startup = mkHostGroupBundle "shell-startup" [ pkgs.zsh pkgs.starship ];',
+            'mkHostGroupCommand = package: command:',
+            'git-core = mkHostGroupBundle {',
+            'name = "git-core";',
+            'commands = [ (mkHostGroupCommand pkgs.gitMinimal "git") ];',
+            'mosh-transport = mkHostGroupBundle {',
+            'name = "mosh-transport";',
+            'shell-startup = mkHostGroupBundle {',
+            'name = "shell-startup";',
+            'build-baseline = mkHostGroupBundle {',
+            'name = "build-baseline";',
+            'c-toolchain-gcc = mkHostGroupBundle {',
+            'name = "c-toolchain-gcc";',
+            'c-toolchain-clang = mkHostGroupBundle {',
+            'name = "c-toolchain-clang";',
+            'name = "dev-diagnostics";',
             '"remote-dev-host-group-git-core" = (hostGroupPackages system pkgs)."git-core";',
             "remoteDevPackage",
             "runtimePackage",
+            "pkgs.bashInteractive",
+            "pkgs.clang",
+            "pkgs.file",
             "pkgs.fzf",
+            "pkgs.gcc",
+            "pkgs.glibc.bin",
+            "pkgs.gnumake",
             "pkgs.mosh",
             "pkgs.patchelf",
+            "pkgs.pkg-config",
             "pkgs.starship",
+            "pkgs.strace",
             "pkgs.zsh",
             "pkgs.zstd",
             "pkgs.gitMinimal",
@@ -2176,18 +2298,19 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         ]:
             if expected not in flake:
                 raise Fail(f"rendered flake is missing {expected}")
+        if "ignoreCollisions" in flake:
+            raise Fail("host group bundles must not ignore path collisions")
         if "devShells" in flake or "mkShellNoCC" in flake or "mkHostShell" in flake:
             raise Fail("host groups must be packages, not devShells")
         foundation_block = flake.split("hostRuntimePackages =", 1)[1].split("mkHostRuntimePackage", 1)[0]
-        for group_tool in [
-            "pkgs.fzf",
-            "pkgs.gitMinimal",
-            "pkgs.mosh",
-            "pkgs.patchelf",
-            "pkgs.starship",
-            "pkgs.zsh",
-            "pkgs.zstd",
-        ]:
+        for group_tool in sorted(
+            {
+                package
+                for group in HOST_GROUPS
+                for package in group["inputs"]
+                if package.startswith("pkgs.")
+            }
+        ):
             if group_tool in foundation_block:
                 raise Fail(f"host foundation must not include host group tool {group_tool}")
         if "pkgs.nix" not in foundation_block:
@@ -2223,6 +2346,18 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         shell_commands = [shim["command"] for shim in groups["shell-startup"]["commands"]]
         if shell_commands != ["zsh", "starship"]:
             raise Fail("shell-startup must only expose zsh and starship")
+        build_commands = [shim["command"] for shim in groups["build-baseline"]["commands"]]
+        if build_commands != ["pkg-config", "make"]:
+            raise Fail("build-baseline must only expose pkg-config and make")
+        gcc_commands = [shim["command"] for shim in groups["c-toolchain-gcc"]["commands"]]
+        if gcc_commands != ["cc", "gcc"]:
+            raise Fail("c-toolchain-gcc must only expose cc and gcc")
+        clang_commands = [shim["command"] for shim in groups["c-toolchain-clang"]["commands"]]
+        if clang_commands != ["clang"]:
+            raise Fail("c-toolchain-clang must only expose clang")
+        diagnostic_commands = [shim["command"] for shim in groups["dev-diagnostics"]["commands"]]
+        if diagnostic_commands != ["strace", "file", "ldd"]:
+            raise Fail("dev-diagnostics must only expose diagnostic commands")
         for group in groups.values():
             if "installable" in group or "scope" in group or "policy" in group:
                 raise Fail("host groups catalog retained shell schema fields")
