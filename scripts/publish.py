@@ -55,6 +55,18 @@ AWS_AMI_PIN_METADATA = "templates/aws-ami-pin.json"
 AWS_AMI_REV_PREFIX_LEN = 12
 NIXOS_AMI_NAME_RE = re.compile(r"^nixos/.+\.([0-9a-f]{12})-(x86_64|aarch64)-linux$")
 
+GIT_CORE_COMMANDS = (
+    "git",
+    "git-cvsserver",
+    "git-http-backend",
+    "git-jump",
+    "git-receive-pack",
+    "git-shell",
+    "git-upload-archive",
+    "git-upload-pack",
+    "scalar",
+)
+
 
 HOST_GROUPS: tuple[dict[str, Any], ...] = (
     {
@@ -62,7 +74,7 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
         "priority": 0,
         "labels": ["git", "workspace-sync", "bootstrap", "host-default"],
         "inputs": ["pkgs.gitMinimal"],
-        "commands": ["git", "git-receive-pack", "git-upload-pack"],
+        "commands": list(GIT_CORE_COMMANDS),
     },
     {
         "id": "mosh-transport",
@@ -2246,10 +2258,13 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             if package in default_prefill_block:
                 raise Fail(f"default-dev-shell-prefill must not retain overlapping input {package}")
         git_core_block = host_group_block("git-core")
-        for command in ["git", "git-receive-pack", "git-upload-pack"]:
+        for command in GIT_CORE_COMMANDS:
             expected = f'(mkHostGroupCommand pkgs.gitMinimal "{command}")'
             if expected not in git_core_block:
                 raise Fail(f"rendered flake git-core missing command {command}")
+        for stale in ["gitFull", "pkgs.git ", "pkgs.git\n"]:
+            if stale in git_core_block:
+                raise Fail(f"rendered flake git-core must stay on gitMinimal, found {stale.strip()}")
         for expected in [
             'host_config_id = "remote-dev-host-runtime-v2";',
             "remote-dev-runtime = mkLocalBinaryPackage",
@@ -2348,8 +2363,8 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         if groups["default-dev-shell-prefill"]["commands"] != []:
             raise Fail("default dev shell prefill must not expose fake commands")
         git_commands = [shim["command"] for shim in groups["git-core"]["commands"]]
-        if git_commands != ["git", "git-receive-pack", "git-upload-pack"]:
-            raise Fail("git-core must expose git and wire commands")
+        if git_commands != list(GIT_CORE_COMMANDS):
+            raise Fail("git-core must expose the full gitMinimal command surface")
         shell_commands = [shim["command"] for shim in groups["shell-startup"]["commands"]]
         if shell_commands != ["zsh", "starship"]:
             raise Fail("shell-startup must only expose zsh and starship")

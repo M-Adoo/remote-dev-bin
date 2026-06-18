@@ -110,8 +110,14 @@ __HOST_IMAGE_SPEC_VALUES__
             closure = [ pkgs.gitMinimal ];
             commands = [
               (mkHostGroupCommand pkgs.gitMinimal "git")
+              (mkHostGroupCommand pkgs.gitMinimal "git-cvsserver")
+              (mkHostGroupCommand pkgs.gitMinimal "git-http-backend")
+              (mkHostGroupCommand pkgs.gitMinimal "git-jump")
               (mkHostGroupCommand pkgs.gitMinimal "git-receive-pack")
+              (mkHostGroupCommand pkgs.gitMinimal "git-shell")
+              (mkHostGroupCommand pkgs.gitMinimal "git-upload-archive")
               (mkHostGroupCommand pkgs.gitMinimal "git-upload-pack")
+              (mkHostGroupCommand pkgs.gitMinimal "scalar")
             ];
           };
           mosh-transport = mkHostGroupBundle {
