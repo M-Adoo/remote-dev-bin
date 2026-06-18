@@ -62,18 +62,22 @@ __HOST_IMAGE_SPEC_VALUES__
           pathsToLink = [ "/bin" "/sbin" ];
         };
 
-      hostGroupShells = system: pkgs:
+      hostGroupPackages = system: pkgs:
         let
-          mkHostShell = packages: pkgs.mkShellNoCC { inherit packages; };
+          mkHostGroupBundle = name: paths: pkgs.buildEnv {
+            name = "remote-dev-host-group-${name}-${system}";
+            inherit paths;
+            pathsToLink = [ "/bin" "/sbin" ];
+          };
           nixSourceBaseline = pkgs.runCommand "remote-dev-nix-source-baseline-${system}" { } ''
             mkdir -p $out
             ln -s ${pkgs.path} $out/nixpkgs
           '';
         in
         {
-          git-core = mkHostShell [ pkgs.gitMinimal ];
-          mosh-transport = mkHostShell [ pkgs.mosh ];
-          default-dev-shell-prefill = mkHostShell [
+          git-core = mkHostGroupBundle "git-core" [ pkgs.gitMinimal ];
+          mosh-transport = mkHostGroupBundle "mosh-transport" [ pkgs.mosh ];
+          default-dev-shell-prefill = mkHostGroupBundle "default-dev-shell-prefill" [
             pkgs.bashInteractive
             pkgs.coreutils
             pkgs.curl
@@ -82,12 +86,12 @@ __HOST_IMAGE_SPEC_VALUES__
             pkgs.pkg-config
             pkgs.stdenv.cc.cc.lib
           ];
-          nix-source-baseline = mkHostShell [ nixSourceBaseline ];
-          shell-startup = mkHostShell [ pkgs.zsh pkgs.starship ];
-          shell-extras = mkHostShell [ pkgs.fzf ];
-          vscode-compat = mkHostShell [ pkgs.patchelf ];
-          compression-tools = mkHostShell [ pkgs.zstd ];
-          dev-diagnostics = mkHostShell [
+          nix-source-baseline = mkHostGroupBundle "nix-source-baseline" [ nixSourceBaseline ];
+          shell-startup = mkHostGroupBundle "shell-startup" [ pkgs.zsh pkgs.starship ];
+          shell-extras = mkHostGroupBundle "shell-extras" [ pkgs.fzf ];
+          vscode-compat = mkHostGroupBundle "vscode-compat" [ pkgs.patchelf ];
+          compression-tools = mkHostGroupBundle "compression-tools" [ pkgs.zstd ];
+          dev-diagnostics = mkHostGroupBundle "dev-diagnostics" [
             pkgs.clang
             pkgs.file
             pkgs.gcc
@@ -840,6 +844,5 @@ __HOST_IMAGE_SPEC_VALUES__
       in
       {
         packages = __PACKAGES__;
-        devShells = hostGroupShells system pkgs;
       });
 }

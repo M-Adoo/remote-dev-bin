@@ -33,7 +33,7 @@ IMAGE_CONTRACT_ID = "remote-dev-cloud-host-v1"
 HOST_IMAGE_SPEC_SCHEMA_VERSION = 7
 HOST_IMAGE_SCHEMA_VERSION = 3
 FIRSTBOOT_SCHEMA_VERSION = 2
-HOST_GROUPS_CATALOG_SCHEMA_VERSION = 1
+HOST_GROUPS_CATALOG_SCHEMA_VERSION = 2
 AWS_BOOTSTRAP_FLAKE = "cloud/aws-bootstrap-flake.nix"
 AWS_BOOTSTRAP_LOCK = "cloud/aws-bootstrap-flake.lock"
 NIX_CACHE_DIR = "nix-cache"
@@ -552,6 +552,9 @@ def package_attrs(manifests: list[dict[str, Any]]) -> str:
             lines.append(
                 "  remote-dev-host-runtime = mkHostRuntimePackage pkgs remote-dev remote-dev-hostctrl remote-dev-runtime;"
             )
+            for group in HOST_GROUPS:
+                attr = host_group_package_attr(group["id"])
+                lines.append(f'  "{attr}" = (hostGroupPackages system pkgs)."{group["id"]}";')
         if any(m["kind"] == "hostctrl" for m in by_system[system]):
             lines.append("  remote-dev-kexec-installer = mkKexecInstallerPackage pkgs;")
         default = "remote-dev" if any(m["kind"] == "remote-dev" for m in by_system[system]) else "remote-dev-hostctrl"
@@ -900,49 +903,58 @@ def host_groups_closure_manifest_file(group_id: str, system: str) -> str:
     return f"{HOST_GROUPS_DIR}/{group_id}-{system}.json"
 
 
-def host_groups_installable(system: str, group_id: str) -> str:
-    return f"devShells.{system}.{group_id}"
+def host_group_package_attr(group_id: str) -> str:
+    return f"remote-dev-host-group-{group_id}"
+
+
+def host_group_attr(system: str, group_id: str) -> str:
+    return f"packages.{system}.{host_group_package_attr(group_id)}"
+
+
+def host_group_command(command: str) -> dict[str, str]:
+    return {"command": command, "relative_path": f"bin/{command}"}
 
 
 def placeholder_host_groups_store_path(system: str, group_id: str) -> str:
-    return f"/nix/store/00000000000000000000000000000000-remote-dev-host-groups-{group_id}-{system}"
+    return f"/nix/store/00000000000000000000000000000000-{host_group_package_attr(group_id)}-{system}"
 
 
-def host_groups_group_fingerprint(group: dict[str, Any], system: str) -> str:
+def host_groups_group_fingerprint(group: dict[str, Any], system: str, store_path: str) -> str:
     raw = json.dumps(
         {
             "schema_version": HOST_GROUPS_CATALOG_SCHEMA_VERSION,
             "system": system,
-            "scope": "host",
             "id": group["id"],
-            "policy": group.get("policy", "warmup"),
             "priority": group["priority"],
             "labels": group["labels"],
-            "commands": group["commands"],
-            "installable": host_groups_installable(system, group["id"]),
+            "store_path": store_path,
+            "commands": [host_group_command(command) for command in group["commands"]],
             "closure_manifest_file": host_groups_closure_manifest_file(group["id"], system),
         },
         sort_keys=True,
         separators=(",", ":"),
     )
-    return "host-groups-group-v1:" + hashlib.sha256(raw.encode()).hexdigest()
+    return "host-groups-group-v2:" + hashlib.sha256(raw.encode()).hexdigest()
 
 
-def host_groups_catalog_groups(system: str) -> list[dict[str, Any]]:
+def host_groups_catalog_groups(
+    system: str, group_roots: dict[tuple[str, str], str] | None = None
+) -> list[dict[str, Any]]:
     groups = []
     for group in HOST_GROUPS:
         group_id = group["id"]
+        store_path = (group_roots or {}).get(
+            (system, group_id), placeholder_host_groups_store_path(system, group_id)
+        )
         groups.append(
             {
-                "scope": "host",
                 "id": group_id,
-                "policy": group.get("policy", "warmup"),
                 "priority": group["priority"],
                 "labels": list(group["labels"]),
-                "commands": [{"command": command} for command in group["commands"]],
-                "installable": host_groups_installable(system, group_id),
+                "store_path": store_path,
+                "commands": [host_group_command(command) for command in group["commands"]],
                 "closure_manifest_file": host_groups_closure_manifest_file(group_id, system),
-                "fingerprint": host_groups_group_fingerprint(group, system),
+                "fingerprint": host_groups_group_fingerprint(group, system, store_path),
             }
         )
     return groups
@@ -958,7 +970,7 @@ def host_groups_catalog_fingerprint(system: str, groups: list[dict[str, Any]]) -
         sort_keys=True,
         separators=(",", ":"),
     )
-    return "host-groups-catalog-v1:" + hashlib.sha256(raw.encode()).hexdigest()
+    return "host-groups-catalog-v2:" + hashlib.sha256(raw.encode()).hexdigest()
 
 
 def write_host_groups_catalogs(
@@ -969,7 +981,7 @@ def write_host_groups_catalogs(
     catalogs: dict[str, dict[str, str]] = {}
     for arch in config.host_arches:
         system = f"{arch}-linux"
-        groups = host_groups_catalog_groups(system)
+        groups = host_groups_catalog_groups(system, group_roots)
         fingerprint = host_groups_catalog_fingerprint(system, groups)
         catalog_file = host_groups_catalog_file(system)
         json_dump(
@@ -983,9 +995,6 @@ def write_host_groups_catalogs(
         )
         for group in groups:
             group_id = group["id"]
-            store_path = (group_roots or {}).get(
-                (system, group_id), placeholder_host_groups_store_path(system, group_id)
-            )
             manifest_path = branch_dir / group["closure_manifest_file"]
             if not manifest_path.is_file():
                 json_dump(
@@ -994,10 +1003,10 @@ def write_host_groups_catalogs(
                         "schema_version": 1,
                         "system": system,
                         "group": group_id,
-                        "installable": group["installable"],
+                        "package_attr": host_group_attr(system, group_id),
                         "fingerprint": group["fingerprint"],
-                        "store_path": store_path,
-                        "paths": [store_path],
+                        "store_path": group["store_path"],
+                        "paths": [group["store_path"]],
                     },
                 )
         catalogs[system] = {"file": catalog_file, "fingerprint": fingerprint}
@@ -1146,19 +1155,20 @@ def maybe_realize_runtime_and_cache(
                 "paths": nix_path_info_recursive(branch_dir, output),
             },
         )
-        for group in host_groups_catalog_groups(system):
+        for group in HOST_GROUPS:
             group_id = group["id"]
-            output = nix_build_store_path(branch_dir, system, f"path:{branch_dir}#{group['installable']}")
+            output = nix_build_store_path(branch_dir, system, f"path:{branch_dir}#{host_group_attr(system, group_id)}")
             group_roots[(system, group_id)] = output
             cache_roots.append(output)
+            fingerprint = host_groups_group_fingerprint(group, system, output)
             json_dump(
-                branch_dir / group["closure_manifest_file"],
+                branch_dir / host_groups_closure_manifest_file(group_id, system),
                 {
                     "schema_version": 1,
                     "system": system,
                     "group": group_id,
-                    "installable": group["installable"],
-                    "fingerprint": group["fingerprint"],
+                    "package_attr": host_group_attr(system, group_id),
+                    "fingerprint": fingerprint,
                     "store_path": output,
                     "paths": nix_path_info_recursive(branch_dir, output),
                 },
@@ -1679,6 +1689,7 @@ def validate_tree(branch_dir: Path, config: TargetConfig) -> None:
         expected_fingerprint = host_groups_catalog_fingerprint(system, groups)
         if catalog_fingerprint != expected_fingerprint:
             raise Fail(f"{catalog_file}: fingerprint does not match catalog content")
+        expected_group_specs = {group["id"]: group for group in HOST_GROUPS}
         seen_groups: set[str] = set()
         seen_commands: set[str] = set()
         for group in groups:
@@ -1690,29 +1701,44 @@ def validate_tree(branch_dir: Path, config: TargetConfig) -> None:
             if group_id in seen_groups:
                 raise Fail(f"{catalog_file}: duplicate host groups group {group_id}")
             seen_groups.add(group_id)
-            if group.get("scope") != "host":
-                raise Fail(f"{catalog_file}: group {group_id} scope must be host")
-            policy = group.get("policy")
-            if policy not in {"blocking", "warmup", "on_demand"}:
-                raise Fail(f"{catalog_file}: group {group_id} has invalid policy")
+            if "scope" in group or "policy" in group:
+                raise Fail(f"{catalog_file}: group {group_id} must not include shell scope or policy")
             priority = group.get("priority")
             if not isinstance(priority, int) or priority < 0:
                 raise Fail(f"{catalog_file}: group {group_id} priority must be a non-negative integer")
-            installable = group.get("installable")
-            if installable != host_groups_installable(system, group_id):
-                raise Fail(f"{catalog_file}: group {group_id} installable mismatch")
+            if "installable" in group:
+                raise Fail(f"{catalog_file}: group {group_id} must not include installable")
+            store_path = group.get("store_path")
+            if not isinstance(store_path, str) or not store_path.startswith("/nix/store/"):
+                raise Fail(f"{catalog_file}: group {group_id} store_path must be a /nix/store path")
             closure_manifest_file = group.get("closure_manifest_file")
             if closure_manifest_file != host_groups_closure_manifest_file(group_id, system):
                 raise Fail(f"{catalog_file}: group {group_id} closure manifest mismatch")
-            if not (branch_dir / closure_manifest_file).is_file():
+            closure_manifest_path = branch_dir / closure_manifest_file
+            if not closure_manifest_path.is_file():
                 raise Fail(f"{catalog_file}: group {group_id} closure manifest is missing")
+            closure_manifest = json_load(closure_manifest_path)
+            if "installable" in closure_manifest:
+                raise Fail(f"{closure_manifest_file}: must not include installable")
+            if closure_manifest.get("package_attr") != host_group_attr(system, group_id):
+                raise Fail(f"{closure_manifest_file}: package_attr mismatch")
+            if closure_manifest.get("store_path") != store_path:
+                raise Fail(f"{closure_manifest_file}: store_path mismatch")
             commands = group.get("commands")
             if not isinstance(commands, list):
                 raise Fail(f"{catalog_file}: group {group_id} commands must be a list")
+            expected_commands = [host_group_command(command) for command in expected_group_specs[group_id]["commands"]]
+            if commands != expected_commands:
+                raise Fail(f"{catalog_file}: group {group_id} commands mismatch")
             for command_entry in commands:
                 command = command_entry.get("command") if isinstance(command_entry, dict) else None
+                relative_path = command_entry.get("relative_path") if isinstance(command_entry, dict) else None
                 if not isinstance(command, str) or not command:
                     raise Fail(f"{catalog_file}: group {group_id} has invalid command")
+                if not isinstance(relative_path, str) or not relative_path or relative_path.startswith("/"):
+                    raise Fail(f"{catalog_file}: group {group_id} command {command} has invalid relative_path")
+                if ".." in Path(relative_path).parts:
+                    raise Fail(f"{catalog_file}: group {group_id} command {command} relative_path escapes bundle")
                 if command in seen_commands:
                     raise Fail(f"{catalog_file}: duplicate host groups command {command}")
                 seen_commands.add(command)
@@ -2121,10 +2147,11 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             'host_config_id = "remote-dev-host-runtime-v2";',
             "remote-dev-runtime = mkLocalBinaryPackage",
             "remote-dev-host-runtime = mkHostRuntimePackage pkgs remote-dev remote-dev-hostctrl remote-dev-runtime;",
-            "devShells = hostGroupShells system pkgs;",
-            "git-core = mkHostShell [ pkgs.gitMinimal ];",
-            "mosh-transport = mkHostShell [ pkgs.mosh ];",
-            "shell-startup = mkHostShell [ pkgs.zsh pkgs.starship ];",
+            'hostGroupPackages = system: pkgs:',
+            'git-core = mkHostGroupBundle "git-core" [ pkgs.gitMinimal ];',
+            'mosh-transport = mkHostGroupBundle "mosh-transport" [ pkgs.mosh ];',
+            'shell-startup = mkHostGroupBundle "shell-startup" [ pkgs.zsh pkgs.starship ];',
+            '"remote-dev-host-group-git-core" = (hostGroupPackages system pkgs)."git-core";',
             "remoteDevPackage",
             "runtimePackage",
             "pkgs.fzf",
@@ -2149,6 +2176,8 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         ]:
             if expected not in flake:
                 raise Fail(f"rendered flake is missing {expected}")
+        if "devShells" in flake or "mkShellNoCC" in flake or "mkHostShell" in flake:
+            raise Fail("host groups must be packages, not devShells")
         foundation_block = flake.split("hostRuntimePackages =", 1)[1].split("mkHostRuntimePackage", 1)[0]
         for group_tool in [
             "pkgs.fzf",
@@ -2182,6 +2211,8 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         if spec["bootstrap"]["host_groups_catalog_file"] != "cloud/host-groups-catalog-aarch64-linux.json":
             raise Fail("runtime spec did not point at the host groups catalog")
         catalog = json_load(branch / "cloud/host-groups-catalog-aarch64-linux.json")
+        if catalog["schema_version"] != 2:
+            raise Fail("host groups catalog did not use schema v2")
         if catalog["fingerprint"] != spec["bootstrap"]["host_groups_catalog_fingerprint"]:
             raise Fail("runtime spec host groups catalog fingerprint mismatch")
         groups = {group["id"]: group for group in catalog["groups"]}
@@ -2193,8 +2224,13 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         if shell_commands != ["zsh", "starship"]:
             raise Fail("shell-startup must only expose zsh and starship")
         for group in groups.values():
-            if not group.get("installable"):
-                raise Fail("host groups group missing installable")
+            if "installable" in group or "scope" in group or "policy" in group:
+                raise Fail("host groups catalog retained shell schema fields")
+            if not group.get("store_path"):
+                raise Fail("host groups group missing store_path")
+            for command in group["commands"]:
+                if not command.get("relative_path"):
+                    raise Fail("host groups command missing relative_path")
             if not (branch / group["closure_manifest_file"]).is_file():
                 raise Fail("host groups closure manifest was not rendered")
         if (branch / AWS_BOOTSTRAP_FLAKE).exists() or (branch / AWS_BOOTSTRAP_LOCK).exists():

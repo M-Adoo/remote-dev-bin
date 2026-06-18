@@ -30,6 +30,10 @@ Both refs use the same generated artifact schema:
 - `cloud/host-service-image.json`
 - `nix-cache/`
 
+Host group catalogs use schema v2. Each host group is a published package
+bundle with a realized store path, closure manifest, and command-relative
+paths. Host groups are not `devShells`.
+
 The flake consumes repository-local tarballs from `artifacts/`; it does not
 fetch GitHub Release assets.
 
