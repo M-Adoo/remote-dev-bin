@@ -206,10 +206,6 @@ class SystemTarget:
         return f"remote-dev-{self.system}"
 
     @property
-    def hostctrl_artifact(self) -> str:
-        return f"remote-dev-hostctrl-{self.system}"
-
-    @property
     def runtime_artifact(self) -> str:
         return f"remote-dev-runtime-{self.system}"
 
@@ -400,18 +396,6 @@ def build_matrix(config: TargetConfig) -> dict[str, Any]:
                 "artifact": target.runtime_artifact,
             }
         )
-        include.append(
-            {
-                "kind": "hostctrl",
-                "package": "remote-dev-hostctrl",
-                "binary": "remote-dev-hostctrl",
-                "system": target.system,
-                "arch": target.arch,
-                "cargo_target": target.cargo_target,
-                "os": target.os,
-                "artifact": target.hostctrl_artifact,
-            }
-        )
     return {"include": include}
 
 
@@ -511,14 +495,13 @@ def verify_binary_manifest(manifest: dict[str, Any], artifacts_dir: Path, config
 def expected_artifacts(config: TargetConfig) -> set[str]:
     names = {SYSTEMS[system].remote_dev_artifact for system in config.remote_dev_systems}
     names.update(SYSTEMS[f"{arch}-linux"].runtime_artifact for arch in config.host_arches)
-    names.update(SYSTEMS[f"{arch}-linux"].hostctrl_artifact for arch in config.host_arches)
     return names
 
 
 def select_binary_manifests(
     manifests: list[dict[str, Any]], artifacts_dir: Path, config: TargetConfig, source_sha: str
 ) -> list[dict[str, Any]]:
-    binaries = [m for m in manifests if m.get("kind") in ("remote-dev", "runtime", "hostctrl")]
+    binaries = [m for m in manifests if m.get("kind") in ("remote-dev", "runtime")]
     for manifest in binaries:
         verify_binary_manifest(manifest, artifacts_dir, config)
         if manifest["source_sha"] != source_sha:
@@ -544,10 +527,6 @@ def remove_generated_paths(branch_dir: Path) -> None:
         "host-image-spec.json",
         "host-service-test-metadata.json",
         "cloud-images.json",
-        "remote-dev-hostctrl-x86_64-linux.tar.gz",
-        "remote-dev-hostctrl-x86_64-linux.tar.gz.sha256",
-        "remote-dev-hostctrl-aarch64-linux.tar.gz",
-        "remote-dev-hostctrl-aarch64-linux.tar.gz.sha256",
         "remote-dev-x86_64-linux.tar.gz",
         "remote-dev-x86_64-linux.tar.gz.sha256",
         "remote-dev-aarch64-linux.tar.gz",
@@ -612,7 +591,6 @@ def package_attrs(manifests: list[dict[str, Any]]) -> str:
             attr = {
                 "remote-dev": "remote-dev",
                 "runtime": "remote-dev-runtime",
-                "hostctrl": "remote-dev-hostctrl",
             }[manifest["kind"]]
             lines.extend(
                 [
@@ -623,16 +601,16 @@ def package_attrs(manifests: list[dict[str, Any]]) -> str:
                     f"    ./{manifest['tarball']};",
                 ]
             )
-        if {m["kind"] for m in by_system[system]} >= {"remote-dev", "runtime", "hostctrl"}:
+        if {m["kind"] for m in by_system[system]} >= {"remote-dev", "runtime"}:
             lines.append(
-                "  remote-dev-host-runtime = mkHostRuntimePackage pkgs remote-dev remote-dev-hostctrl remote-dev-runtime;"
+                "  remote-dev-host-runtime = mkHostRuntimePackage pkgs remote-dev remote-dev-runtime;"
             )
             for group in HOST_GROUPS:
                 attr = host_group_package_attr(group["id"])
                 lines.append(f'  "{attr}" = (hostGroupPackages system pkgs)."{group["id"]}";')
-        if any(m["kind"] == "hostctrl" for m in by_system[system]):
+        if any(m["kind"] == "runtime" for m in by_system[system]):
             lines.append("  remote-dev-kexec-installer = mkKexecInstallerPackage pkgs;")
-        default = "remote-dev" if any(m["kind"] == "remote-dev" for m in by_system[system]) else "remote-dev-hostctrl"
+        default = "remote-dev" if any(m["kind"] == "remote-dev" for m in by_system[system]) else "remote-dev-runtime"
         lines.append(f"  default = {default};")
         lines.append("}")
         blocks.append("\n".join(lines))
@@ -1995,10 +1973,9 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         raise Fail("release target is not bound to main/prod")
     if test_arm.remote_dev_systems != ("aarch64-linux",) or test_arm.host_arches != ("aarch64",):
         raise Fail("test aarch64 target did not narrow the matrix")
-    if len(build_matrix(release)["include"]) != 8:
+    if len(build_matrix(release)["include"]) != 6:
         raise Fail(
-            "release matrix must include four remote-dev binaries, two runtime binaries, "
-            "and two hostctrl binaries"
+            "release matrix must include four remote-dev binaries and two runtime binaries"
         )
     def fake_ami(name: str, arch: str, image_id: str, creation_date: str) -> dict[str, str]:
         return {
@@ -2074,7 +2051,7 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         else:
             raise Fail("AWS AMI pin metadata check must reject flake.lock mismatches")
     cache_examples = {
-        "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-hostctrl-test": True,
+        "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-runtime-test": True,
         "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-etc": True,
         "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-system-path": True,
         "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-users-groups.json": True,
@@ -2268,7 +2245,7 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         for expected in [
             'host_config_id = "remote-dev-host-runtime-v2";',
             "remote-dev-runtime = mkLocalBinaryPackage",
-            "remote-dev-host-runtime = mkHostRuntimePackage pkgs remote-dev remote-dev-hostctrl remote-dev-runtime;",
+            "remote-dev-host-runtime = mkHostRuntimePackage pkgs remote-dev remote-dev-runtime;",
             'hostGroupPackages = system: pkgs:',
             'mkHostGroupCommand = package: command:',
             'git-core = mkHostGroupBundle {',

@@ -41,7 +41,7 @@ __HOST_IMAGE_SPEC_VALUES__
           '';
         };
 
-      hostRuntimePackages = pkgs: remoteDevPackage: hostctrlPackage: runtimePackage: [
+      hostRuntimePackages = pkgs: remoteDevPackage: runtimePackage: [
         pkgs.bash
         pkgs.coreutils
         pkgs.curl
@@ -51,14 +51,13 @@ __HOST_IMAGE_SPEC_VALUES__
         pkgs.systemd
         pkgs.util-linux
         remoteDevPackage
-        hostctrlPackage
         runtimePackage
       ];
 
-      mkHostRuntimePackage = pkgs: remoteDevPackage: hostctrlPackage: runtimePackage:
+      mkHostRuntimePackage = pkgs: remoteDevPackage: runtimePackage:
         pkgs.buildEnv {
           name = "remote-dev-host-runtime";
-          paths = hostRuntimePackages pkgs remoteDevPackage hostctrlPackage runtimePackage;
+          paths = hostRuntimePackages pkgs remoteDevPackage runtimePackage;
           pathsToLink = [ "/bin" "/sbin" ];
         };
 
@@ -568,7 +567,6 @@ __HOST_IMAGE_SPEC_VALUES__
                 --arg flake_lock_hash "$lock_hash" \
                 --arg disko_layout_id "$(field disko_layout_id)" \
                 --arg current_system "x86_64-linux" \
-                --arg hostctrl_version "$(field hostctrl_version)" \
                 --arg remote_dev_bin_ref "$(field remote_dev_bin_ref)" \
                 --arg install_id "$install_id" \
                 '{
@@ -578,7 +576,6 @@ __HOST_IMAGE_SPEC_VALUES__
                   flake_lock_hash: $flake_lock_hash,
                   disko_layout_id: $disko_layout_id,
                   current_system: $current_system,
-                  hostctrl_version: $hostctrl_version,
                   remote_dev_bin_ref: $remote_dev_bin_ref,
                   install_id: $install_id,
                   install_source: "installer",
@@ -713,8 +710,6 @@ __HOST_IMAGE_SPEC_VALUES__
           system = pkgs.stdenv.hostPlatform.system;
           remoteDevPackage = self.packages.${system}.remote-dev or
             (throw "remote-dev artifact is not published for ${system} in this remote-dev-bin ref");
-          hostctrlPackage = self.packages.${system}.remote-dev-hostctrl or
-            (throw "remote-dev-hostctrl artifact is not published for ${system} in this remote-dev-bin ref");
           runtimePackage = self.packages.${system}.remote-dev-runtime or
             (throw "remote-dev-runtime artifact is not published for ${system} in this remote-dev-bin ref");
         in
@@ -750,7 +745,7 @@ __HOST_IMAGE_SPEC_VALUES__
             %remote-dev-lease ALL=(ALL:ALL) NOPASSWD:SETENV: ALL
           '';
 
-          environment.systemPackages = hostRuntimePackages pkgs remoteDevPackage hostctrlPackage runtimePackage;
+          environment.systemPackages = hostRuntimePackages pkgs remoteDevPackage runtimePackage;
 
           environment.etc."remote-dev/host-artifacts.json".text =
             builtins.toJSON hostArtifacts;
