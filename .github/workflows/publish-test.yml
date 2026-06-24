@@ -319,9 +319,30 @@ jobs:
             --max-commits 5 \
             --max-days 7
 
+      - name: Resolve runtime artifact ref
+        id: artifact
+        working-directory: published
+        run: |
+          RUNTIME_ARTIFACT_SHA="$(git rev-parse HEAD)"
+          if ! [[ "$RUNTIME_ARTIFACT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "runtime artifact ref must resolve to a full commit SHA, got $RUNTIME_ARTIFACT_SHA" >&2
+            exit 1
+          fi
+          echo "sha=$RUNTIME_ARTIFACT_SHA" >> "$GITHUB_OUTPUT"
+          echo "ref=github:M-Adoo/remote-dev-bin/$RUNTIME_ARTIFACT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Push target branch
         working-directory: published
         run: git push --force origin "$TARGET_BRANCH"
+
+      - name: Verify target branch head
+        working-directory: published
+        run: |
+          REMOTE_SHA="$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | awk '{print $1}')"
+          if [ "$REMOTE_SHA" != "${{ steps.artifact.outputs.sha }}" ]; then
+            echo "remote $TARGET_BRANCH HEAD $REMOTE_SHA did not match runtime artifact SHA ${{ steps.artifact.outputs.sha }}" >&2
+            exit 1
+          fi
 
       - name: Deploy Cloud Run
         run: |
@@ -331,7 +352,7 @@ jobs:
             --region "$REGION" \
             --project "$TARGET_PROJECT" \
             --service-account "$SERVICE_ACCOUNT" \
-            --set-env-vars "REMOTE_DEV_HOST_SERVICE_CONFIG=/app/config/host-service-test.toml" \
+            --set-env-vars "REMOTE_DEV_HOST_SERVICE_CONFIG=/app/config/host-service-test.toml,REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF=${{ steps.artifact.outputs.ref }}" \
             --cpu 1 \
             --concurrency 5 \
             --timeout 600 \

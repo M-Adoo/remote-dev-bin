@@ -1917,17 +1917,38 @@ def required_index(text: str, marker: str, context: str) -> int:
     return index
 
 
-def assert_publish_workflow_order(name: str, workflow: str, branch_push: str) -> None:
+def assert_publish_workflow_order(
+    name: str, workflow: str, branch_push: str, pre_resolve_marker: str
+) -> None:
     push_image = required_index(workflow, "- name: Push image", name)
     render_tree = required_index(workflow, "publish.py render-tree", name)
+    pre_resolve = required_index(workflow, pre_resolve_marker, name)
+    resolve_ref = required_index(workflow, "- name: Resolve runtime artifact ref", name)
     push_branch = required_index(workflow, branch_push, name)
+    verify_branch = required_index(
+        workflow,
+        'git ls-remote origin "refs/heads/$TARGET_BRANCH"',
+        name,
+    )
     deploy_step = required_index(workflow, "- name: Deploy Cloud Run", name)
     gcloud_deploy = required_index(workflow, "gcloud run deploy", name)
-    if not push_image < render_tree < push_branch < deploy_step < gcloud_deploy:
+    pinned_env = "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF=${{ steps.artifact.outputs.ref }}"
+    if not (
+        push_image
+        < render_tree
+        < pre_resolve
+        < resolve_ref
+        < push_branch
+        < verify_branch
+        < deploy_step
+        < gcloud_deploy
+    ):
         raise Fail(
-            f"{name} must push the image, render and push the target branch, "
-            "then deploy Cloud Run"
+            f"{name} must push the image, render the target branch, resolve the final "
+            "artifact SHA, push and verify the branch, then deploy Cloud Run"
         )
+    if pinned_env not in workflow:
+        raise Fail(f"{name} must pin Cloud Run to the resolved remote-dev-bin artifact ref")
     if "steps.deploy.outputs" in workflow:
         raise Fail(f"{name} must render from the image digest step, not a deploy step")
     if "- name: Push image and deploy Cloud Run" in workflow:
@@ -1958,10 +1979,16 @@ def assert_workflows(repo_root: Path) -> None:
         if "gh run delete" in line and "--yes" in line:
             raise Fail("gh run delete does not accept --yes in the GitHub runner CLI")
     assert_publish_workflow_order(
-        "publish-test", test, 'git push --force origin "$TARGET_BRANCH"'
+        "publish-test",
+        test,
+        'git push --force origin "$TARGET_BRANCH"',
+        "- name: Apply host-service-test retention",
     )
     assert_publish_workflow_order(
-        "publish-release", release, 'git push origin "$TARGET_BRANCH"'
+        "publish-release",
+        release,
+        'git push origin "$TARGET_BRANCH"',
+        "- name: Commit release branch",
     )
 
 
