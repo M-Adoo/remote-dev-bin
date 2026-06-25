@@ -61,6 +61,13 @@ __HOST_IMAGE_SPEC_VALUES__
           pathsToLink = [ "/bin" "/sbin" ];
         };
 
+      mkBootstrapRuntimePackage = pkgs: remoteDevPackage: runtimePackage:
+        pkgs.buildEnv {
+          name = "remote-dev-bootstrap-runtime";
+          paths = [ remoteDevPackage runtimePackage ];
+          pathsToLink = [ "/bin" ];
+        };
+
       hostGroupPackages = system: pkgs:
         let
           mkHostGroupCommand = package: command: {
