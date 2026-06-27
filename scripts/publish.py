@@ -102,14 +102,14 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
     {
         "id": "git-core",
         "priority": 10,
-        "labels": ["git", "workspace-sync", "bootstrap", "host-default"],
+        "labels": ["git", "workspace-sync", "bootstrap"],
         "inputs": ["pkgs.gitMinimal"],
         "commands": list(GIT_CORE_COMMANDS),
     },
     {
         "id": "mosh-transport",
         "priority": 5,
-        "labels": ["terminal", "mosh", "transport", "host-default"],
+        "labels": ["terminal", "mosh", "transport"],
         "inputs": ["pkgs.mosh"],
         "commands": ["mosh-server"],
     },
@@ -120,7 +120,6 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
             "default-shell",
             "store-prefill",
             "workspace-eager-prefill",
-            "host-default",
         ],
         "inputs": ["pkgs.bashInteractive", "pkgs.stdenv.cc.cc.lib"],
         "commands": [],
@@ -128,49 +127,49 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
     {
         "id": "nix-source-baseline",
         "priority": 20,
-        "labels": ["nix", "source", "store-prefill", "host-default"],
+        "labels": ["nix", "source", "store-prefill"],
         "inputs": ["nixSourceBaseline"],
         "commands": [],
     },
     {
         "id": "shell-startup",
         "priority": 30,
-        "labels": ["shell-baseline", "shell", "interactive", "startup", "host-default"],
+        "labels": ["shell-baseline", "shell", "interactive", "startup"],
         "inputs": ["pkgs.zsh", "pkgs.starship"],
         "commands": ["zsh", "starship"],
     },
     {
         "id": "shell-extras",
         "priority": 40,
-        "labels": ["shell", "interactive", "extras", "host-default"],
+        "labels": ["shell", "interactive", "extras"],
         "inputs": ["pkgs.fzf"],
         "commands": ["fzf"],
     },
     {
         "id": "vscode-compat",
         "priority": 45,
-        "labels": ["vscode", "editor", "compat", "host-default"],
+        "labels": ["vscode", "editor", "compat"],
         "inputs": ["pkgs.patchelf"],
         "commands": ["patchelf"],
     },
     {
         "id": "compression-tools",
         "priority": 50,
-        "labels": ["compression", "archive", "host-default"],
+        "labels": ["compression", "archive"],
         "inputs": ["pkgs.zstd"],
         "commands": ["zstd"],
     },
     {
         "id": "build-baseline",
         "priority": 60,
-        "labels": ["build", "tooling", "store-prefill", "workspace-eager-prefill", "host-default"],
+        "labels": ["build", "tooling", "store-prefill", "workspace-eager-prefill"],
         "inputs": ["pkgs.gnumake", "pkgs.pkg-config"],
         "commands": ["pkg-config", "make"],
     },
     {
         "id": "c-toolchain-gcc",
         "priority": 70,
-        "labels": ["diagnostic", "cc", "gcc", "build-debug", "background", "host-default"],
+        "labels": ["diagnostic", "cc", "gcc", "build-debug", "background"],
         "inputs": ["pkgs.gcc"],
         "commands": ["cc", "gcc"],
     },
@@ -184,7 +183,7 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
     {
         "id": "dev-diagnostics",
         "priority": 80,
-        "labels": ["diagnostic", "build-debug", "background", "host-default"],
+        "labels": ["diagnostic", "build-debug", "background"],
         "inputs": ["pkgs.file", "pkgs.glibc.bin", "pkgs.strace"],
         "commands": ["strace", "file", "ldd"],
     },
@@ -2495,6 +2494,11 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         host_base_commands = [shim["command"] for shim in groups["host-base-tools"]["commands"]]
         if host_base_commands != list(HOST_BASE_COMMANDS):
             raise Fail("host-base-tools command surface mismatch")
+        host_default_groups = sorted(
+            group_id for group_id, group in groups.items() if "host-default" in group["labels"]
+        )
+        if host_default_groups != ["host-base-tools"]:
+            raise Fail(f"host-default warmup must only select host-base-tools, got {host_default_groups}")
         git_commands = [shim["command"] for shim in groups["git-core"]["commands"]]
         if git_commands != list(GIT_CORE_COMMANDS):
             raise Fail("git-core must expose the full gitMinimal command surface")
@@ -2514,8 +2518,6 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         clang_commands = [shim["command"] for shim in groups["c-toolchain-clang"]["commands"]]
         if clang_commands != ["clang"]:
             raise Fail("c-toolchain-clang must only expose clang")
-        if "host-default" in groups["c-toolchain-clang"]["labels"]:
-            raise Fail("c-toolchain-clang must not be in host-default warmup")
         if groups["c-toolchain-clang"]["priority"] != 200:
             raise Fail("c-toolchain-clang must stay late in the background queue")
         diagnostic_commands = [shim["command"] for shim in groups["dev-diagnostics"]["commands"]]
