@@ -1,5 +1,5 @@
 {
-  "fingerprint": "host-groups-group-v2:276f1f92d7efcbcb6a694c239d620e12629ec582ccdf6f0e8ee867c72a9a6056",
+  "fingerprint": "host-groups-group-v2:39e787804339281d5b47b544f89ad9f4e23c890153ba2a04a7e1fff6b7e4cf08",
   "group": "shell-extras",
   "package_attr": "packages.aarch64-linux.remote-dev-host-group-shell-extras",
   "paths": {
@@ -9,7 +9,7 @@
       "narHash": "sha256-Mnp3iYRtAWJQCG+ipKGgfq3WMj//G0FhQ7hRB+s8hmI=",
       "narSize": 2149344,
       "references": [],
-      "registrationTime": 1782554283,
+      "registrationTime": 1782555621,
       "signatures": [
         "cache.nixos.org-1:fT1DtKlMbSZfI+pwNUMwGJrCR4fdUCZR0KH9uYX9PnyJUhBWZTqbf3vWSNH9xP8h2TB+j20BSuXH/SDlmgVMAg=="
       ],
@@ -26,7 +26,7 @@
         "/nix/store/3cv80f978yy87v60iw1almd0xa0zx1d2-libidn2-2.3.8",
         "/nix/store/8qnhisbw8l1ib48599jaq8zzd1ypfbxs-libunistring-1.4.1"
       ],
-      "registrationTime": 1782554283,
+      "registrationTime": 1782555621,
       "signatures": [
         "cache.nixos.org-1:feH9m2LkqV7gfOojhSABeOzB1p7jjSg3kYbKNRxw4pims1dTIzsvB5Om8bTJ2a7XVBc1R/GHhYuuBNloU/EIAg=="
       ],
@@ -43,7 +43,7 @@
         "/nix/store/646nbv5s8pxr3q35lgv8x80qwmyz0z2y-ncurses-6.5",
         "/nix/store/qqx8w6hdkaq4ckszi08kz568c1a9y8sf-glibc-2.40-218"
       ],
-      "registrationTime": 1782554284,
+      "registrationTime": 1782555622,
       "signatures": [
         "cache.nixos.org-1:+3m0k0IUqIQETZXULLmdgbdWcwc048lsEx8jRgznjOIFHDracd4Kv9UhXGInzjgfzkFny5oB6NTGdgokQQEeBw=="
       ],
@@ -60,7 +60,7 @@
         "/nix/store/7b3lr24wwfabw2wx4337ai2d6vjwk1kh-bash-5.3p3",
         "/nix/store/qqx8w6hdkaq4ckszi08kz568c1a9y8sf-glibc-2.40-218"
       ],
-      "registrationTime": 1782554284,
+      "registrationTime": 1782555622,
       "signatures": [
         "cache.nixos.org-1:B1M5usMlOCSfieu+aKsnYdzCktpLyKOhtcnmz2oZImXCDfknvkaAnFtxWYaTACFr6QSbKzZ/y1XikPEs8VQSBQ=="
       ],
@@ -76,7 +76,7 @@
       "references": [
         "/nix/store/8qnhisbw8l1ib48599jaq8zzd1ypfbxs-libunistring-1.4.1"
       ],
-      "registrationTime": 1782554283,
+      "registrationTime": 1782555621,
       "signatures": [
         "cache.nixos.org-1:dPaiQn5QRXRsO4lpUjdDn9uIP8CGWOF6lULPrt8+XgvVTBpoUEbpRG0m+ktdldlvkYGXOhzHpda3JmkD4j3TCA=="
       ],
@@ -93,7 +93,7 @@
         "/nix/store/646nbv5s8pxr3q35lgv8x80qwmyz0z2y-ncurses-6.5",
         "/nix/store/qqx8w6hdkaq4ckszi08kz568c1a9y8sf-glibc-2.40-218"
       ],
-      "registrationTime": 1782554284,
+      "registrationTime": 1782555622,
       "signatures": [
         "cache.nixos.org-1:DmLhzXxuWjw1AF6emJ71mRJM8adP003eJox/ohJVKllpe7PUm3FmXDRPhFTlQ/abXNBnVANqPw9Zaxpcww1JBw=="
       ],
@@ -109,7 +109,7 @@
       "references": [
         "/nix/store/i2yia2j4l78ffhn6kqxzykk82ag63rpm-fzf-0.67.0"
       ],
-      "registrationTime": 1782554318,
+      "registrationTime": 1782555656,
       "signatures": [],
       "storeDir": "/nix/store",
       "ultimate": true,
@@ -121,7 +121,7 @@
       "narHash": "sha256-K5W6jvXoONmtPxaXLzzc6xM6A/oznoeW6IPzRim37SE=",
       "narSize": 153928,
       "references": [],
-      "registrationTime": 1782554283,
+      "registrationTime": 1782555621,
       "signatures": [
         "cache.nixos.org-1:J1TAN2NcwFwN0jEzpBk3Os5QS0Yc8p5fwTcYv5rPbpAKLXpYiVM7K0cgUnMmJ6rKcCMydkCeK4/FYiAhhPJcCA=="
       ],
@@ -141,7 +141,7 @@
         "/nix/store/j8cygczfmyjpnz1w7nkdspmylvlbibpp-bc-1.08.2",
         "/nix/store/mz10qdlxzn5qhcqr3s44vz40wbmdvdxq-iana-etc-20250505"
       ],
-      "registrationTime": 1782554317,
+      "registrationTime": 1782555655,
       "signatures": [
         "cache.nixos.org-1:DcZEOrbEWctN6uNrhY23fSb5M7WQ+/r/VpU4Eauiqep4nyp7KF4CLtFWMwAM8RGPvjy04nMqALXtpKI9+MMrDw=="
       ],
@@ -159,7 +159,7 @@
         "/nix/store/8xj55xj2xbjfg150fqj7l73ycniqz84a-readline-8.3p1",
         "/nix/store/qqx8w6hdkaq4ckszi08kz568c1a9y8sf-glibc-2.40-218"
       ],
-      "registrationTime": 1782554317,
+      "registrationTime": 1782555655,
       "signatures": [
         "cache.nixos.org-1:HE9KB34NxEhppntJHjXYiqRA2kbpqZzuh8dFzNCiP1BjxPRcNPZewNMadSvHtWkrkB70d7kM3Wf6CqXTSpa9AA=="
       ],
@@ -175,7 +175,7 @@
       "references": [
         "/nix/store/mz10qdlxzn5qhcqr3s44vz40wbmdvdxq-iana-etc-20250505"
       ],
-      "registrationTime": 1782554317,
+      "registrationTime": 1782555655,
       "signatures": [
         "cache.nixos.org-1:Twe2RHIhCifypkldp7d9Xw3aypykMQTEI0EkhRsNpwBWmAZpysSkXRmho+P2vGMy5aWEfMYI32ocJJ3D5ZHWCQ=="
       ],
@@ -193,7 +193,7 @@
         "/nix/store/aa29rmzcgsxzcv1ysfivfg98vwv0mwf1-xgcc-14.3.0-libgcc",
         "/nix/store/qqx8w6hdkaq4ckszi08kz568c1a9y8sf-glibc-2.40-218"
       ],
-      "registrationTime": 1782554283,
+      "registrationTime": 1782555621,
       "signatures": [
         "cache.nixos.org-1:vRdVy+cEanCoEy+VKGSdO0a7QqkQ2sZjHqdHV1xVGGJaRpt7oLIpm4WuvIfSylKm5Xn4ppx/9AReonYuj1JwDg=="
       ],

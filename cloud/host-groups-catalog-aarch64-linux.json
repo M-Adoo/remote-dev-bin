@@ -1,5 +1,5 @@
 {
-  "fingerprint": "host-groups-catalog-v2:00a04c7eeaf4e898dbfaef2500a409dfe5050c8b78f8c7521c4777677cd31d5f",
+  "fingerprint": "host-groups-catalog-v2:6272a26a6ec6bc7c5cc90f89536bd274594ea3a32a6f3f6275625f95eab32fab",
   "groups": [
     {
       "closure_manifest_file": "cloud/host-groups/host-base-tools-aarch64-linux.json",
@@ -99,13 +99,12 @@
           "relative_path": "bin/scalar"
         }
       ],
-      "fingerprint": "host-groups-group-v2:9b8c295314cf29f2cd4f2a9124eee0b7bd1efea7a1bbd0820927487509c3ede7",
+      "fingerprint": "host-groups-group-v2:7c48e4fe3030503a6ffed6ca39e31a9e4d5b5ac78668d768d4945dca5d428211",
       "id": "git-core",
       "labels": [
         "git",
         "workspace-sync",
-        "bootstrap",
-        "host-default"
+        "bootstrap"
       ],
       "priority": 10,
       "store_path": "/nix/store/h35m89lfbbdlqs2wd06gl41151yqqr2f-remote-dev-host-group-git-core-aarch64-linux"
@@ -118,13 +117,12 @@
           "relative_path": "bin/mosh-server"
         }
       ],
-      "fingerprint": "host-groups-group-v2:2cbb48fd047697af01dffb41fff8e0b582dd9a3e734d126cc5397a48f828ce96",
+      "fingerprint": "host-groups-group-v2:2c12760c142a33586eaf67c9f98713a149d72f74aa313b366428e9464dde65b8",
       "id": "mosh-transport",
       "labels": [
         "terminal",
         "mosh",
-        "transport",
-        "host-default"
+        "transport"
       ],
       "priority": 5,
       "store_path": "/nix/store/mkk3symq52y93b464vwamdf028rv30wq-remote-dev-host-group-mosh-transport-aarch64-linux"
@@ -132,13 +130,12 @@
     {
       "closure_manifest_file": "cloud/host-groups/default-dev-shell-prefill-aarch64-linux.json",
       "commands": [],
-      "fingerprint": "host-groups-group-v2:c6f49ac152ad20cf4e122660a1bea22cef53589b1e6273ce0b9a67924f9f9b24",
+      "fingerprint": "host-groups-group-v2:1d3af39d5cf08d2d29b038ddaa212e78e5e2e6375e6595bf37637b761eeb2008",
       "id": "default-dev-shell-prefill",
       "labels": [
         "default-shell",
         "store-prefill",
-        "workspace-eager-prefill",
-        "host-default"
+        "workspace-eager-prefill"
       ],
       "priority": 10,
       "store_path": "/nix/store/cwcmj77g53bj0f1v7kjmzzi46cjpdqkj-remote-dev-host-group-default-dev-shell-prefill-aarch64-linux"
@@ -146,13 +143,12 @@
     {
       "closure_manifest_file": "cloud/host-groups/nix-source-baseline-aarch64-linux.json",
       "commands": [],
-      "fingerprint": "host-groups-group-v2:b850d33a81c8c76136c7e1404215657ab1f9604b9bb83849d9fca20d168c7058",
+      "fingerprint": "host-groups-group-v2:cb6a55fb9e11fdc18e185ad5f46fa74664af71c529ce248e664e570f77c314d2",
       "id": "nix-source-baseline",
       "labels": [
         "nix",
         "source",
-        "store-prefill",
-        "host-default"
+        "store-prefill"
       ],
       "priority": 20,
       "store_path": "/nix/store/vx4qivfpkp6r13vd2pdd8g8fzjmwxsn4-remote-dev-host-group-nix-source-baseline-aarch64-linux"
@@ -169,14 +165,13 @@
           "relative_path": "bin/starship"
         }
       ],
-      "fingerprint": "host-groups-group-v2:0221cfe48f0bb2c571cc83cefd985be5268a6bf40490272a5d7f76c62f85996a",
+      "fingerprint": "host-groups-group-v2:ef331cde888a3ad141d6f60806180a97b784bf8f1cda747a7723261fc92e0837",
       "id": "shell-startup",
       "labels": [
         "shell-baseline",
         "shell",
         "interactive",
-        "startup",
-        "host-default"
+        "startup"
       ],
       "priority": 30,
       "store_path": "/nix/store/nbrbkw0x91id27h9h64w3x5047cmjypf-remote-dev-host-group-shell-startup-aarch64-linux"
@@ -189,13 +184,12 @@
           "relative_path": "bin/fzf"
         }
       ],
-      "fingerprint": "host-groups-group-v2:276f1f92d7efcbcb6a694c239d620e12629ec582ccdf6f0e8ee867c72a9a6056",
+      "fingerprint": "host-groups-group-v2:39e787804339281d5b47b544f89ad9f4e23c890153ba2a04a7e1fff6b7e4cf08",
       "id": "shell-extras",
       "labels": [
         "shell",
         "interactive",
-        "extras",
-        "host-default"
+        "extras"
       ],
       "priority": 40,
       "store_path": "/nix/store/9v3z0d6z063m72wc0am7366z8wkk6m24-remote-dev-host-group-shell-extras-aarch64-linux"
@@ -208,13 +202,12 @@
           "relative_path": "bin/patchelf"
         }
       ],
-      "fingerprint": "host-groups-group-v2:29cc8464446f36b5958b643456343894d81fa6d67a899e058ba14a3fc3b4e079",
+      "fingerprint": "host-groups-group-v2:b756226de035b59e4e8d476740cb6078bc069ddc8c78aa95e0f491722f8b8614",
       "id": "vscode-compat",
       "labels": [
         "vscode",
         "editor",
-        "compat",
-        "host-default"
+        "compat"
       ],
       "priority": 45,
       "store_path": "/nix/store/rq1q9lbn8552y439qvxnis7b2gx7lknx-remote-dev-host-group-vscode-compat-aarch64-linux"
@@ -227,12 +220,11 @@
           "relative_path": "bin/zstd"
         }
       ],
-      "fingerprint": "host-groups-group-v2:2f721598068208fcbd031eb70253391e7866f3fa319a7fb7f7eb4e3b699f7bde",
+      "fingerprint": "host-groups-group-v2:d1f7bc72efe2148e1343a0790019a150bbff69f59efcdacbea0cc1d1398a1138",
       "id": "compression-tools",
       "labels": [
         "compression",
-        "archive",
-        "host-default"
+        "archive"
       ],
       "priority": 50,
       "store_path": "/nix/store/amh2zj2sz2bvd7aiha3j0szhcvmlfgyf-remote-dev-host-group-compression-tools-aarch64-linux"
@@ -249,14 +241,13 @@
           "relative_path": "bin/make"
         }
       ],
-      "fingerprint": "host-groups-group-v2:2cd7b95d615cca6fe105d7f7982e0560b870fb86484052d2b37bf5416dddc3b1",
+      "fingerprint": "host-groups-group-v2:f7802225945567b5acbdc133360cb493bc9cb520f8394ddbdf992b9ae2e9070f",
       "id": "build-baseline",
       "labels": [
         "build",
         "tooling",
         "store-prefill",
-        "workspace-eager-prefill",
-        "host-default"
+        "workspace-eager-prefill"
       ],
       "priority": 60,
       "store_path": "/nix/store/spfwqvpy3r9fdgck320jmiyrn2mfdcph-remote-dev-host-group-build-baseline-aarch64-linux"
@@ -273,15 +264,14 @@
           "relative_path": "bin/gcc"
         }
       ],
-      "fingerprint": "host-groups-group-v2:db73538f53b7f67740de281a8eed73a4ab0f33291339fffca47f7e6c00650f8e",
+      "fingerprint": "host-groups-group-v2:59d2ba31d5b6d3266fcb190c08f7d430f5176bc39f61bb84c312bc3feb052b96",
       "id": "c-toolchain-gcc",
       "labels": [
         "diagnostic",
         "cc",
         "gcc",
         "build-debug",
-        "background",
-        "host-default"
+        "background"
       ],
       "priority": 70,
       "store_path": "/nix/store/vwn28xmbpidq5agcy0vapiyjr2nba5sv-remote-dev-host-group-c-toolchain-gcc-aarch64-linux"
@@ -321,13 +311,12 @@
           "relative_path": "bin/ldd"
         }
       ],
-      "fingerprint": "host-groups-group-v2:8d63f278f9ef1a639348d602914b95c984ff13b8dc112ebb7a72c39187e2f4ab",
+      "fingerprint": "host-groups-group-v2:885692f66530fed17313efe9c2030ce398e5f8b3919dade2d06a136de13f6622",
       "id": "dev-diagnostics",
       "labels": [
         "diagnostic",
         "build-debug",
-        "background",
-        "host-default"
+        "background"
       ],
       "priority": 80,
       "store_path": "/nix/store/c4id9azs8f10wh6z214grz6y7yhsvgmq-remote-dev-host-group-dev-diagnostics-aarch64-linux"

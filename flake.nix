@@ -10,7 +10,7 @@
 
   outputs = { self, nixpkgs, flake-utils, disko }:
     let
-      version = "host-service-test.20260627T095752Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782553997";
+      version = "host-service-test.20260627T102011Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782555331";
 
       hostArtifacts = {
         host_config_id = "remote-dev-agent-runtime-v1";

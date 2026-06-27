@@ -1,6 +1,6 @@
 {
   "agent_runtime_attr": "packages.aarch64-linux.remote-dev-agent-runtime",
-  "agent_runtime_store_path": "/nix/store/vnb7p5jcpsg94qc4ik1118sw8kgm47ar-remote-dev-agent-runtime",
+  "agent_runtime_store_path": "/nix/store/lw034jfw5ap67zbym495wwjxcdz9lqiw-remote-dev-agent-runtime",
   "paths": {
     "/nix/store/3cv80f978yy87v60iw1almd0xa0zx1d2-libidn2-2.3.8": {
       "ca": null,
@@ -11,7 +11,7 @@
         "/nix/store/3cv80f978yy87v60iw1almd0xa0zx1d2-libidn2-2.3.8",
         "/nix/store/8qnhisbw8l1ib48599jaq8zzd1ypfbxs-libunistring-1.4.1"
       ],
-      "registrationTime": 1782554283,
+      "registrationTime": 1782555621,
       "signatures": [
         "cache.nixos.org-1:feH9m2LkqV7gfOojhSABeOzB1p7jjSg3kYbKNRxw4pims1dTIzsvB5Om8bTJ2a7XVBc1R/GHhYuuBNloU/EIAg=="
       ],
@@ -27,7 +27,7 @@
       "references": [
         "/nix/store/8qnhisbw8l1ib48599jaq8zzd1ypfbxs-libunistring-1.4.1"
       ],
-      "registrationTime": 1782554283,
+      "registrationTime": 1782555621,
       "signatures": [
         "cache.nixos.org-1:dPaiQn5QRXRsO4lpUjdDn9uIP8CGWOF6lULPrt8+XgvVTBpoUEbpRG0m+ktdldlvkYGXOhzHpda3JmkD4j3TCA=="
       ],
@@ -41,7 +41,7 @@
       "narHash": "sha256-K5W6jvXoONmtPxaXLzzc6xM6A/oznoeW6IPzRim37SE=",
       "narSize": 153928,
       "references": [],
-      "registrationTime": 1782554283,
+      "registrationTime": 1782555621,
       "signatures": [
         "cache.nixos.org-1:J1TAN2NcwFwN0jEzpBk3Os5QS0Yc8p5fwTcYv5rPbpAKLXpYiVM7K0cgUnMmJ6rKcCMydkCeK4/FYiAhhPJcCA=="
       ],
@@ -49,16 +49,31 @@
       "ultimate": false,
       "version": 1
     },
-    "/nix/store/czz4nb96da59fhicgcmzbwlfn6hw0cmh-remote-dev-host-service-test.20260627T095752Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782553997": {
+    "/nix/store/lw034jfw5ap67zbym495wwjxcdz9lqiw-remote-dev-agent-runtime": {
       "ca": null,
-      "deriver": "/nix/store/9xh0b7dkdlll8nkgjj7jjiwaq12d4rsh-remote-dev-host-service-test.20260627T095752Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782553997.drv",
+      "deriver": "/nix/store/2l2ax747v059y4g4fgxjcwxy8z1432n9-remote-dev-agent-runtime.drv",
+      "narHash": "sha256-KasJviOPtr2tRReO/G1DzuyIyHay47RT+1JEAQL/NcA=",
+      "narSize": 1008,
+      "references": [
+        "/nix/store/nxham9ywh662hhvf84jsh2sk1ks3wlrv-remote-dev-host-service-test.20260627T102011Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782555331",
+        "/nix/store/ssqid1mbm0sjw3abvh605j239n0f8gdr-remote-dev-runtime-host-service-test.20260627T102011Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782555331"
+      ],
+      "registrationTime": 1782555634,
+      "signatures": [],
+      "storeDir": "/nix/store",
+      "ultimate": true,
+      "version": 1
+    },
+    "/nix/store/nxham9ywh662hhvf84jsh2sk1ks3wlrv-remote-dev-host-service-test.20260627T102011Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782555331": {
+      "ca": null,
+      "deriver": "/nix/store/2n0icw8dixyxd78xp044a31mb37pn9yn-remote-dev-host-service-test.20260627T102011Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782555331.drv",
       "narHash": "sha256-v71rVdqwnvHkj22EliVgvxfNWJCNIFFwiGhVfQn1ae4=",
       "narSize": 17108264,
       "references": [
         "/nix/store/qja3pnk0if5zlbdsdd722gcpk4czqvin-gcc-14.3.0-libgcc",
         "/nix/store/qqx8w6hdkaq4ckszi08kz568c1a9y8sf-glibc-2.40-218"
       ],
-      "registrationTime": 1782554294,
+      "registrationTime": 1782555633,
       "signatures": [],
       "storeDir": "/nix/store",
       "ultimate": true,
@@ -70,7 +85,7 @@
       "narHash": "sha256-vnyVmYS4D8cpN0PLqVzaHFSik1ZyOkHq8+SeSQex920=",
       "narSize": 153928,
       "references": [],
-      "registrationTime": 1782554283,
+      "registrationTime": 1782555621,
       "signatures": [
         "cache.nixos.org-1:36FxQDp1s8+CEZJCjl/kU8p6NUBpxYHVeG5TSVyFabnR+vKHglllySfB5KSfwaQ+hlFv2oJLR8tKlfuq/ssxDQ=="
       ],
@@ -88,7 +103,7 @@
         "/nix/store/aa29rmzcgsxzcv1ysfivfg98vwv0mwf1-xgcc-14.3.0-libgcc",
         "/nix/store/qqx8w6hdkaq4ckszi08kz568c1a9y8sf-glibc-2.40-218"
       ],
-      "registrationTime": 1782554283,
+      "registrationTime": 1782555621,
       "signatures": [
         "cache.nixos.org-1:vRdVy+cEanCoEy+VKGSdO0a7QqkQ2sZjHqdHV1xVGGJaRpt7oLIpm4WuvIfSylKm5Xn4ppx/9AReonYuj1JwDg=="
       ],
@@ -96,31 +111,16 @@
       "ultimate": false,
       "version": 1
     },
-    "/nix/store/r65851hn0psv2pf2c20bzchf38vj1cfa-remote-dev-runtime-host-service-test.20260627T095752Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782553997": {
+    "/nix/store/ssqid1mbm0sjw3abvh605j239n0f8gdr-remote-dev-runtime-host-service-test.20260627T102011Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782555331": {
       "ca": null,
-      "deriver": "/nix/store/l5zy50d30qj39fns86sl5npcsaxnzhwv-remote-dev-runtime-host-service-test.20260627T095752Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782553997.drv",
+      "deriver": "/nix/store/yiaa1955z5ssk71a2glldipn5r02vfn0-remote-dev-runtime-host-service-test.20260627T102011Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782555331.drv",
       "narHash": "sha256-E5za+WFPSdOsHKNMxk+K6jTiG+KrAx/ByBfdcs26bR0=",
       "narSize": 1969008,
       "references": [
         "/nix/store/qja3pnk0if5zlbdsdd722gcpk4czqvin-gcc-14.3.0-libgcc",
         "/nix/store/qqx8w6hdkaq4ckszi08kz568c1a9y8sf-glibc-2.40-218"
       ],
-      "registrationTime": 1782554293,
-      "signatures": [],
-      "storeDir": "/nix/store",
-      "ultimate": true,
-      "version": 1
-    },
-    "/nix/store/vnb7p5jcpsg94qc4ik1118sw8kgm47ar-remote-dev-agent-runtime": {
-      "ca": null,
-      "deriver": "/nix/store/nxr0ir01jmxry5vgcpmv34n9qzqvyh6r-remote-dev-agent-runtime.drv",
-      "narHash": "sha256-X453pr8u2XwjNTRe5SbZp7NYaty6z/cYu+FqpVt6KaY=",
-      "narSize": 1008,
-      "references": [
-        "/nix/store/czz4nb96da59fhicgcmzbwlfn6hw0cmh-remote-dev-host-service-test.20260627T095752Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782553997",
-        "/nix/store/r65851hn0psv2pf2c20bzchf38vj1cfa-remote-dev-runtime-host-service-test.20260627T095752Z-g9a74805522e3-remote-dev-bin-test-9a74805522e3-1782553997"
-      ],
-      "registrationTime": 1782554295,
+      "registrationTime": 1782555632,
       "signatures": [],
       "storeDir": "/nix/store",
       "ultimate": true,
