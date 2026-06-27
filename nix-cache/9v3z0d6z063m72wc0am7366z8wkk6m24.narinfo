@@ -1,0 +1,10 @@
+StorePath: /nix/store/9v3z0d6z063m72wc0am7366z8wkk6m24-remote-dev-host-group-shell-extras-aarch64-linux
+URL: nar/17x18r0q3l9jv5pfb2yadsdpjyp0jg8ll6an8mgiv8zvvkhyg3iw.nar.xz
+Compression: xz
+FileHash: sha256:17x18r0q3l9jv5pfb2yadsdpjyp0jg8ll6an8mgiv8zvvkhyg3iw
+FileSize: 272
+NarHash: sha256:17y3672zkn2bn8jih4lq3xw1h2wmmml4wn02syl5afqvhcspmlqz
+NarSize: 1104
+References: i2yia2j4l78ffhn6kqxzykk82ag63rpm-fzf-0.67.0
+Deriver: mms4fl2v2k6zizz3gg93l82ngdc5cxsq-remote-dev-host-group-shell-extras-aarch64-linux.drv
+Sig: remote-dev-bin:LwsmY5iJujTizMORhuZI4GvZXTu1jKxsElqeQz6zjKBKu+H71QTOznNqJViVYPqmBjagKb71wuhwgwPcjYMbAg==

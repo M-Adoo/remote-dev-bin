@@ -1,0 +1,10 @@
+StorePath: /nix/store/rq1q9lbn8552y439qvxnis7b2gx7lknx-remote-dev-host-group-vscode-compat-aarch64-linux
+URL: nar/18iqx8pi2x321chfi9yra16c4lm6hx0vysiqr0lvnc6hgsj8hcz5.nar.xz
+Compression: xz
+FileHash: sha256:18iqx8pi2x321chfi9yra16c4lm6hx0vysiqr0lvnc6hgsj8hcz5
+FileSize: 280
+NarHash: sha256:05irhizpw871zhazw5jhfap9m35j61r43z9hwrk2anal83sij5sw
+NarSize: 1120
+References: 2d9wz51l7mv6856xmz0csl7v7r651ma6-patchelf-0.15.2
+Deriver: pwk0lzqc5n13m9w1ilpv4077l0gk96l1-remote-dev-host-group-vscode-compat-aarch64-linux.drv
+Sig: remote-dev-bin:EIMccd4g+MsloWjomoUz8aFYI6Sx6bKqqEOJDrujuQmK5+VURBgoh/BEVmqZDHuFN/Nzn7YqhIpfl6c1AiZQDw==

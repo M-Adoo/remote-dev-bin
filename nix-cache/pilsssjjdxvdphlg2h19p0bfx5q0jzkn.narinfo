@@ -1,0 +1,9 @@
+StorePath: /nix/store/pilsssjjdxvdphlg2h19p0bfx5q0jzkn-strip.sh
+URL: nar/0d0xnfvp554scyrgwk9wb4x8zh590gs6xyfsdn4q67dhxb62iggs.nar.xz
+Compression: xz
+FileHash: sha256:0d0xnfvp554scyrgwk9wb4x8zh590gs6xyfsdn4q67dhxb62iggs
+FileSize: 2072
+NarHash: sha256:0kiyc58wjgr6mr3jj9vjkqi6cfrdhz5yhxiqxwhn284s02niqjpy
+NarSize: 4616
+References: 
+Sig: remote-dev-bin:0umbsxPS4hl4C79bP9MHqg9V39IO044daIqo13SJL8H3r8scftEZF5l2iM2+mPxa7jLmC3CKB0FcVgnkC3cZDw==

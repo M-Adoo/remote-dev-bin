@@ -1,0 +1,10 @@
+StorePath: /nix/store/gh0hmj1a7wpnkzyxjs1gskim3ljsyc8y-remote-dev-host-group-c-toolchain-clang-aarch64-linux
+URL: nar/0i8675anwr43bvcj1a1zv799jmnv9ib8lh2w26z1sr4bwdfrbi83.nar.xz
+Compression: xz
+FileHash: sha256:0i8675anwr43bvcj1a1zv799jmnv9ib8lh2w26z1sr4bwdfrbi83
+FileSize: 276
+NarHash: sha256:04brh2xkxx3ldkxl0jdyp9m7ywdip5qsdcvl6bmfwx61ihwzq6i1
+NarSize: 1128
+References: nhbsy6mcp9iaz2hby2ir2xadakmjqnzk-clang-wrapper-21.1.7
+Deriver: 42sfm3s4nn65rwcdnni722f8jzg9fns7-remote-dev-host-group-c-toolchain-clang-aarch64-linux.drv
+Sig: remote-dev-bin:OHP2BdtmtSPKIbXHqdmlCbQQ94HXCOTwsSlTZbNPJQLO/00zw92UCy7MB5wpNePavC95SboQbikd+8gUT9GwCg==

@@ -1,0 +1,9 @@
+StorePath: /nix/store/q4bnl816hp6bikdk8xdjzxkwn6y2jdiq-03d4shy8nbqgsrq7q3amqgc461lvds92-source
+URL: nar/1p62l00w9lvjj1aaz1cpl0g7d772dvf2glg06szxc41vz8hih5zr.nar.xz
+Compression: xz
+FileHash: sha256:1p62l00w9lvjj1aaz1cpl0g7d772dvf2glg06szxc41vz8hih5zr
+FileSize: 31474712
+NarHash: sha256:0xgsq0cfjnl2axbzzw579jrjq9g8mhbgjgfippl3qx03im636p5l
+NarSize: 194482688
+References: 
+Sig: remote-dev-bin:cNuU29r0Q6N54Iyo/tsGaHsG1gBPhaCyzCBfFvDLK+6mcmTh27gr3eHyBWXj3QOlVMcF8i/hXXX7wda/hevcDQ==

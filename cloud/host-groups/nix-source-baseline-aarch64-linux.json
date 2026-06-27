@@ -1,0 +1,50 @@
+{
+  "fingerprint": "host-groups-group-v2:b850d33a81c8c76136c7e1404215657ab1f9604b9bb83849d9fca20d168c7058",
+  "group": "nix-source-baseline",
+  "package_attr": "packages.aarch64-linux.remote-dev-host-group-nix-source-baseline",
+  "paths": {
+    "/nix/store/m70b4h70kijzf81a4xs986kmyvvg9zar-remote-dev-nix-source-baseline-aarch64-linux": {
+      "ca": null,
+      "deriver": "/nix/store/ddbl3i8l4f4yhwcidw8nn99h2vrbdhps-remote-dev-nix-source-baseline-aarch64-linux.drv",
+      "narHash": "sha256-thqpDsXT+iQUBVAX/r2joUzhrQthZtpKlYjkycSKKdw=",
+      "narSize": 368,
+      "references": [
+        "/nix/store/q4bnl816hp6bikdk8xdjzxkwn6y2jdiq-03d4shy8nbqgsrq7q3amqgc461lvds92-source"
+      ],
+      "registrationTime": 1782554314,
+      "signatures": [],
+      "storeDir": "/nix/store",
+      "ultimate": true,
+      "version": 1
+    },
+    "/nix/store/q4bnl816hp6bikdk8xdjzxkwn6y2jdiq-03d4shy8nbqgsrq7q3amqgc461lvds92-source": {
+      "ca": "fixed:r:sha256:0xgsq0cfjnl2axbzzw579jrjq9g8mhbgjgfippl3qx03im636p5l",
+      "deriver": null,
+      "narHash": "sha256-tFwzTI0DdDzovdE9+Ras6CUss0yn8P9XV4Ja6RjA+nU=",
+      "narSize": 194482688,
+      "references": [],
+      "registrationTime": 1782554313,
+      "signatures": [],
+      "storeDir": "/nix/store",
+      "ultimate": false,
+      "version": 1
+    },
+    "/nix/store/vx4qivfpkp6r13vd2pdd8g8fzjmwxsn4-remote-dev-host-group-nix-source-baseline-aarch64-linux": {
+      "ca": null,
+      "deriver": "/nix/store/mpdyjl7546cd7c9qdd5y48g8yapi34j1-remote-dev-host-group-nix-source-baseline-aarch64-linux.drv",
+      "narHash": "sha256-pmGdbtSAAAvbbrS5iyODMicge9P7rRq4qKHPdyqY3Ug=",
+      "narSize": 720,
+      "references": [
+        "/nix/store/m70b4h70kijzf81a4xs986kmyvvg9zar-remote-dev-nix-source-baseline-aarch64-linux"
+      ],
+      "registrationTime": 1782554314,
+      "signatures": [],
+      "storeDir": "/nix/store",
+      "ultimate": true,
+      "version": 1
+    }
+  },
+  "schema_version": 1,
+  "store_path": "/nix/store/vx4qivfpkp6r13vd2pdd8g8fzjmwxsn4-remote-dev-host-group-nix-source-baseline-aarch64-linux",
+  "system": "aarch64-linux"
+}
