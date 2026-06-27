@@ -28,9 +28,9 @@ import urllib.request
 
 REPO = "M-Adoo/remote-dev-bin"
 SOURCE_REPO = "M-Adoo/remote-dev"
-HOST_CONFIG_ID = "remote-dev-host-runtime-v2"
+HOST_CONFIG_ID = "remote-dev-agent-runtime-v1"
 IMAGE_CONTRACT_ID = "remote-dev-cloud-host-v1"
-HOST_IMAGE_SPEC_SCHEMA_VERSION = 8
+HOST_IMAGE_SPEC_SCHEMA_VERSION = 9
 HOST_IMAGE_SCHEMA_VERSION = 3
 FIRSTBOOT_SCHEMA_VERSION = 2
 HOST_GROUPS_CATALOG_SCHEMA_VERSION = 2
@@ -67,11 +67,41 @@ GIT_CORE_COMMANDS = (
     "scalar",
 )
 
+HOST_BASE_COMMANDS = (
+    "bash",
+    "curl",
+    "ip",
+    "nix",
+    "nix-store",
+    "scp",
+    "ssh",
+    "ssh-keygen",
+    "systemctl",
+    "systemd-nspawn",
+    "nsenter",
+)
+
 
 HOST_GROUPS: tuple[dict[str, Any], ...] = (
     {
-        "id": "git-core",
+        "id": "host-base-tools",
         "priority": 0,
+        "labels": ["host-base", "host-tools", "host-default"],
+        "inputs": [
+            "pkgs.bash",
+            "pkgs.coreutils",
+            "pkgs.curl",
+            "pkgs.iproute2",
+            "pkgs.nix",
+            "pkgs.openssh",
+            "pkgs.systemd",
+            "pkgs.util-linux",
+        ],
+        "commands": list(HOST_BASE_COMMANDS),
+    },
+    {
+        "id": "git-core",
+        "priority": 10,
         "labels": ["git", "workspace-sync", "bootstrap", "host-default"],
         "inputs": ["pkgs.gitMinimal"],
         "commands": list(GIT_CORE_COMMANDS),
@@ -545,8 +575,8 @@ def remove_generated_paths(branch_dir: Path) -> None:
         AWS_BOOTSTRAP_LOCK,
         "cloud/aws-bootstrap-closure-x86_64-linux.json",
         "cloud/aws-bootstrap-closure-aarch64-linux.json",
-        "cloud/host-runtime-closure-x86_64-linux.json",
-        "cloud/host-runtime-closure-aarch64-linux.json",
+        "cloud/agent-runtime-closure-x86_64-linux.json",
+        "cloud/agent-runtime-closure-aarch64-linux.json",
         NIX_CACHE_DIR,
     ]:
         path = branch_dir / relative
@@ -603,10 +633,7 @@ def package_attrs(manifests: list[dict[str, Any]]) -> str:
             )
         if {m["kind"] for m in by_system[system]} >= {"remote-dev", "runtime"}:
             lines.append(
-                "  remote-dev-host-runtime = mkHostRuntimePackage pkgs remote-dev remote-dev-runtime;"
-            )
-            lines.append(
-                "  remote-dev-bootstrap-runtime = mkBootstrapRuntimePackage pkgs remote-dev remote-dev-runtime;"
+                "  remote-dev-agent-runtime = mkAgentRuntimePackage pkgs remote-dev remote-dev-runtime;"
             )
             for group in HOST_GROUPS:
                 attr = host_group_package_attr(group["id"])
@@ -939,24 +966,16 @@ def pin_arch_selection(target: str, arch: str | None) -> str:
     return "both"
 
 
-def placeholder_runtime_store_path(system: str) -> str:
-    return f"/nix/store/00000000000000000000000000000000-remote-dev-host-runtime-{system}"
+def placeholder_agent_runtime_store_path(system: str) -> str:
+    return f"/nix/store/00000000000000000000000000000000-remote-dev-agent-runtime-{system}"
 
 
-def placeholder_bootstrap_runtime_store_path(system: str) -> str:
-    return f"/nix/store/00000000000000000000000000000000-remote-dev-bootstrap-runtime-{system}"
+def agent_runtime_attr(system: str) -> str:
+    return f"packages.{system}.remote-dev-agent-runtime"
 
 
-def host_runtime_attr(system: str) -> str:
-    return f"packages.{system}.remote-dev-host-runtime"
-
-
-def bootstrap_runtime_attr(system: str) -> str:
-    return f"packages.{system}.remote-dev-bootstrap-runtime"
-
-
-def host_runtime_closure_manifest_file(system: str) -> str:
-    return f"cloud/host-runtime-closure-{system}.json"
+def agent_runtime_closure_manifest_file(system: str) -> str:
+    return f"cloud/agent-runtime-closure-{system}.json"
 
 
 def host_groups_catalog_file(system: str) -> str:
@@ -983,18 +1002,18 @@ def placeholder_host_groups_store_path(system: str, group_id: str) -> str:
     return f"/nix/store/00000000000000000000000000000000-{host_group_package_attr(group_id)}-{system}"
 
 
-def bootstrap_runtime_fingerprint(system: str, store_path: str) -> str:
+def agent_runtime_fingerprint(system: str, store_path: str) -> str:
     raw = json.dumps(
         {
             "schema_version": HOST_IMAGE_SPEC_SCHEMA_VERSION,
             "system": system,
-            "package_attr": bootstrap_runtime_attr(system),
+            "package_attr": agent_runtime_attr(system),
             "store_path": store_path,
         },
         sort_keys=True,
         separators=(",", ":"),
     )
-    return "bootstrap-runtime-v1:" + hashlib.sha256(raw.encode()).hexdigest()
+    return "agent-runtime-v1:" + hashlib.sha256(raw.encode()).hexdigest()
 
 
 def host_groups_group_fingerprint(group: dict[str, Any], system: str, store_path: str) -> str:
@@ -1098,16 +1117,14 @@ def write_host_specs(
     nixpkgs_rev: str,
     trusted_public_key: str,
     host_groups_catalogs: dict[str, dict[str, str]],
-    runtimes: dict[str, str] | None = None,
-    bootstrap_runtimes: dict[str, str] | None = None,
+    agent_runtimes: dict[str, str] | None = None,
 ) -> None:
     for arch in config.host_arches:
         system = f"{arch}-linux"
-        runtime_store_path = (runtimes or {}).get(system, placeholder_runtime_store_path(system))
-        bootstrap_runtime_store_path = (bootstrap_runtimes or {}).get(
-            system, placeholder_bootstrap_runtime_store_path(system)
+        agent_runtime_store_path = (agent_runtimes or {}).get(
+            system, placeholder_agent_runtime_store_path(system)
         )
-        runtime_closure_manifest = host_runtime_closure_manifest_file(system)
+        agent_runtime_closure_manifest = agent_runtime_closure_manifest_file(system)
         host_groups_catalog = host_groups_catalogs[system]
         catalog = json_load(branch_dir / host_groups_catalog["file"])
         git_core_group = next(
@@ -1133,14 +1150,13 @@ def write_host_specs(
                 "root_device_name": "/dev/xvda",
             },
             "bootstrap": {
-                "runtime_attr": host_runtime_attr(system),
+                "agent_runtime_attr": agent_runtime_attr(system),
                 "nixpkgs_rev": nixpkgs_rev,
                 "system": system,
-                "runtime_store_path": runtime_store_path,
-                "runtime_closure_manifest_file": runtime_closure_manifest,
-                "bootstrap_runtime_store_path": bootstrap_runtime_store_path,
-                "bootstrap_runtime_fingerprint": bootstrap_runtime_fingerprint(
-                    system, bootstrap_runtime_store_path
+                "agent_runtime_store_path": agent_runtime_store_path,
+                "agent_runtime_closure_manifest_file": agent_runtime_closure_manifest,
+                "agent_runtime_fingerprint": agent_runtime_fingerprint(
+                    system, agent_runtime_store_path
                 ),
                 "host_groups_catalog_file": host_groups_catalog["file"],
                 "host_groups_catalog_fingerprint": host_groups_catalog["fingerprint"],
@@ -1153,14 +1169,14 @@ def write_host_specs(
             },
         }
         json_dump(branch_dir / HOST_IMAGE_SPEC_DIR / f"{arch}.json", spec)
-        closure_path = branch_dir / runtime_closure_manifest
+        closure_path = branch_dir / agent_runtime_closure_manifest
         if not closure_path.is_file():
             closure = {
                 "schema_version": 1,
                 "system": system,
-                "runtime_attr": host_runtime_attr(system),
-                "runtime_store_path": runtime_store_path,
-                "paths": [runtime_store_path],
+                "agent_runtime_attr": agent_runtime_attr(system),
+                "agent_runtime_store_path": agent_runtime_store_path,
+                "paths": [agent_runtime_store_path],
             }
             json_dump(closure_path, closure)
 
@@ -1229,31 +1245,25 @@ def nix_path_info_recursive(branch_dir: Path, store_path: str) -> Any:
 
 def maybe_realize_runtime_and_cache(
     branch_dir: Path, config: TargetConfig, signing_key: str | None, trusted_public_key: str
-) -> tuple[dict[str, str], dict[str, str], dict[tuple[str, str], str]]:
+) -> tuple[dict[str, str], dict[tuple[str, str], str]]:
     if not signing_key:
-        return {}, {}, {}
-    runtimes: dict[str, str] = {}
-    bootstrap_runtimes: dict[str, str] = {}
+        return {}, {}
+    agent_runtimes: dict[str, str] = {}
     group_roots: dict[tuple[str, str], str] = {}
     cache_roots: list[str] = []
     for arch in config.host_arches:
         system = f"{arch}-linux"
-        attr = f"path:{branch_dir}#{host_runtime_attr(system)}"
+        attr = f"path:{branch_dir}#{agent_runtime_attr(system)}"
         output = nix_build_store_path(branch_dir, system, attr)
-        runtimes[system] = output
+        agent_runtimes[system] = output
         cache_roots.append(output)
-        bootstrap_output = nix_build_store_path(
-            branch_dir, system, f"path:{branch_dir}#{bootstrap_runtime_attr(system)}"
-        )
-        bootstrap_runtimes[system] = bootstrap_output
-        cache_roots.append(bootstrap_output)
         json_dump(
-            branch_dir / host_runtime_closure_manifest_file(system),
+            branch_dir / agent_runtime_closure_manifest_file(system),
             {
                 "schema_version": 1,
                 "system": system,
-                "runtime_attr": host_runtime_attr(system),
-                "runtime_store_path": output,
+                "agent_runtime_attr": agent_runtime_attr(system),
+                "agent_runtime_store_path": output,
                 "paths": nix_path_info_recursive(branch_dir, output),
             },
         )
@@ -1276,7 +1286,7 @@ def maybe_realize_runtime_and_cache(
                 },
             )
     write_signed_nix_cache(branch_dir, signing_key, trusted_public_key, cache_roots)
-    return runtimes, bootstrap_runtimes, group_roots
+    return agent_runtimes, group_roots
 
 
 def write_signed_nix_cache(
@@ -1310,7 +1320,7 @@ def audit_runtime_closures(branch_dir: Path, config: TargetConfig) -> list[dict[
     audits = []
     for arch in config.host_arches:
         system = f"{arch}-linux"
-        closure_path = branch_dir / host_runtime_closure_manifest_file(system)
+        closure_path = branch_dir / agent_runtime_closure_manifest_file(system)
         audit = audit_closure_manifest(branch_dir / NIX_CACHE_DIR, json_load(closure_path))
         audit["system"] = system
         audits.append(audit)
@@ -1686,7 +1696,7 @@ def cmd_render_tree(args: argparse.Namespace) -> None:
     render_flake(repo_root, branch_dir, config, copied, version)
     nixpkgs_rev = read_nixpkgs_rev(branch_dir, repo_root)
     write_nix_cache_info(branch_dir, trusted_key)
-    runtimes, bootstrap_runtimes, group_roots = maybe_realize_runtime_and_cache(
+    agent_runtimes, group_roots = maybe_realize_runtime_and_cache(
         branch_dir, config, args.nix_cache_signing_key_file, trusted_key
     )
     host_groups_catalogs = write_host_groups_catalogs(branch_dir, config, group_roots)
@@ -1696,8 +1706,7 @@ def cmd_render_tree(args: argparse.Namespace) -> None:
         nixpkgs_rev,
         trusted_key,
         host_groups_catalogs,
-        runtimes,
-        bootstrap_runtimes,
+        agent_runtimes,
     )
     closure_audits = (
         audit_runtime_closures(branch_dir, config)
@@ -1788,29 +1797,21 @@ def validate_tree(branch_dir: Path, config: TargetConfig) -> None:
             raise Fail(f"{spec_path}: arch mismatch")
         if spec.get("schema_version") != HOST_IMAGE_SPEC_SCHEMA_VERSION:
             raise Fail(f"{spec_path}: schema_version mismatch")
-        closure = branch_dir / spec["bootstrap"]["runtime_closure_manifest_file"]
+        closure = branch_dir / spec["bootstrap"]["agent_runtime_closure_manifest_file"]
         if not closure.is_file():
             raise Fail(f"{spec_path}: closure manifest is missing")
         closure_manifest = json_load(closure)
-        runtime_store_path = spec["bootstrap"].get("runtime_store_path")
-        if not isinstance(runtime_store_path, str):
-            raise Fail(f"{spec_path}: bootstrap.runtime_store_path is missing")
-        if closure_manifest.get("runtime_store_path") != runtime_store_path:
-            raise Fail(f"{closure.relative_to(branch_dir)}: runtime_store_path mismatch")
-        validate_cached_store_path(branch_dir, f"{spec_path}: runtime_store_path", runtime_store_path)
-        bootstrap_runtime_store_path = spec["bootstrap"].get("bootstrap_runtime_store_path")
-        if not isinstance(bootstrap_runtime_store_path, str):
-            raise Fail(f"{spec_path}: bootstrap.bootstrap_runtime_store_path is missing")
-        expected_bootstrap_fingerprint = bootstrap_runtime_fingerprint(
-            system, bootstrap_runtime_store_path
-        )
-        if spec["bootstrap"].get("bootstrap_runtime_fingerprint") != expected_bootstrap_fingerprint:
-            raise Fail(f"{spec_path}: bootstrap runtime fingerprint mismatch")
+        agent_runtime_store_path = spec["bootstrap"].get("agent_runtime_store_path")
+        if not isinstance(agent_runtime_store_path, str):
+            raise Fail(f"{spec_path}: bootstrap.agent_runtime_store_path is missing")
+        if closure_manifest.get("agent_runtime_store_path") != agent_runtime_store_path:
+            raise Fail(f"{closure.relative_to(branch_dir)}: agent_runtime_store_path mismatch")
         validate_cached_store_path(
-            branch_dir,
-            f"{spec_path}: bootstrap_runtime_store_path",
-            bootstrap_runtime_store_path,
+            branch_dir, f"{spec_path}: agent_runtime_store_path", agent_runtime_store_path
         )
+        expected_agent_fingerprint = agent_runtime_fingerprint(system, agent_runtime_store_path)
+        if spec["bootstrap"].get("agent_runtime_fingerprint") != expected_agent_fingerprint:
+            raise Fail(f"{spec_path}: agent runtime fingerprint mismatch")
         catalog_file = spec["bootstrap"].get("host_groups_catalog_file")
         catalog_fingerprint = spec["bootstrap"].get("host_groups_catalog_fingerprint")
         expected_catalog_file = host_groups_catalog_file(system)
@@ -2342,6 +2343,10 @@ def cmd_self_test(_: argparse.Namespace) -> None:
                 raise Fail(f"rendered flake host group block {group_id} has no end")
             return flake[start : min(ends)]
 
+        def block_contains_package(block: str, package: str) -> bool:
+            pattern = r"(?<![A-Za-z0-9_.-])" + re.escape(package) + r"(?![A-Za-z0-9_.-])"
+            return re.search(pattern, block) is not None
+
         group_inputs = {
             group["id"]: set(group["inputs"])
             for group in HOST_GROUPS
@@ -2350,14 +2355,14 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         for group_id, inputs in group_inputs.items():
             block = host_group_block(group_id)
             for package in sorted(inputs):
-                if package not in block:
+                if not block_contains_package(block, package):
                     raise Fail(f"rendered flake group {group_id} missing input {package}")
             for package in sorted(all_group_inputs - inputs):
-                if package in block:
+                if block_contains_package(block, package):
                     raise Fail(f"rendered flake group {group_id} includes input owned by another group: {package}")
         default_prefill_block = host_group_block("default-dev-shell-prefill")
         for package in ["pkgs.coreutils", "pkgs.curl", "pkgs.gnumake", "pkgs.openssh", "pkgs.pkg-config"]:
-            if package in default_prefill_block:
+            if block_contains_package(default_prefill_block, package):
                 raise Fail(f"default-dev-shell-prefill must not retain overlapping input {package}")
         git_core_block = host_group_block("git-core")
         for command in GIT_CORE_COMMANDS:
@@ -2368,12 +2373,13 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             if stale in git_core_block:
                 raise Fail(f"rendered flake git-core must stay on gitMinimal, found {stale.strip()}")
         for expected in [
-            'host_config_id = "remote-dev-host-runtime-v2";',
+            'host_config_id = "remote-dev-agent-runtime-v1";',
             "remote-dev-runtime = mkLocalBinaryPackage",
-            "remote-dev-host-runtime = mkHostRuntimePackage pkgs remote-dev remote-dev-runtime;",
-            "remote-dev-bootstrap-runtime = mkBootstrapRuntimePackage pkgs remote-dev remote-dev-runtime;",
-            'mkBootstrapRuntimePackage = pkgs: remoteDevPackage: runtimePackage:',
+            "remote-dev-agent-runtime = mkAgentRuntimePackage pkgs remote-dev remote-dev-runtime;",
+            'mkAgentRuntimePackage = pkgs: remoteDevPackage: runtimePackage:',
             'hostGroupPackages = system: pkgs:',
+            'host-base-tools = mkHostGroupBundle {',
+            'name = "host-base-tools";',
             'mkHostGroupCommand = package: command:',
             'git-core = mkHostGroupBundle {',
             'name = "git-core";',
@@ -2425,7 +2431,7 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             raise Fail("host group bundles must not ignore path collisions")
         if "devShells" in flake or "mkShellNoCC" in flake or "mkHostShell" in flake:
             raise Fail("host groups must be packages, not devShells")
-        foundation_block = flake.split("hostRuntimePackages =", 1)[1].split("mkHostRuntimePackage", 1)[0]
+        agent_runtime_block = flake.split("mkAgentRuntimePackage =", 1)[1].split("hostGroupPackages", 1)[0]
         for group_tool in sorted(
             {
                 package
@@ -2434,31 +2440,42 @@ def cmd_self_test(_: argparse.Namespace) -> None:
                 if package.startswith("pkgs.")
             }
         ):
-            if group_tool in foundation_block:
-                raise Fail(f"host foundation must not include host group tool {group_tool}")
-        if "pkgs.nix" not in foundation_block:
-            raise Fail("host foundation must include pkgs.nix")
+            if group_tool in agent_runtime_block:
+                raise Fail(f"agent runtime must not include host group tool {group_tool}")
+        host_base_block = host_group_block("host-base-tools")
+        for package in [
+            "pkgs.bash",
+            "pkgs.coreutils",
+            "pkgs.curl",
+            "pkgs.iproute2",
+            "pkgs.nix",
+            "pkgs.openssh",
+            "pkgs.systemd",
+            "pkgs.util-linux",
+        ]:
+            if not block_contains_package(host_base_block, package):
+                raise Fail(f"host-base-tools missing input {package}")
         if any(line.strip() == "pkgs.git" for line in flake.splitlines()):
             raise Fail("host baseline must use pkgs.gitMinimal instead of pkgs.git")
         spec_path = branch / "host-runtime-specs/aarch64.json"
         spec = json_load(spec_path)
-        if spec["schema_version"] != 8:
-            raise Fail("runtime spec did not use schema v8")
+        if spec["schema_version"] != 9:
+            raise Fail("runtime spec did not use schema v9")
         if spec["firstboot_schema_version"] != 2:
             raise Fail("runtime spec did not use firstboot schema v2")
-        if spec["baseline_id"] != "remote-dev-host-runtime-v2":
-            raise Fail("runtime spec did not use the runtime contract id")
-        if spec["bootstrap"]["runtime_attr"] != "packages.aarch64-linux.remote-dev-host-runtime":
-            raise Fail("runtime spec did not point at the host runtime package")
-        if spec["bootstrap"]["runtime_closure_manifest_file"] != "cloud/host-runtime-closure-aarch64-linux.json":
-            raise Fail("runtime spec did not point at the runtime closure manifest")
-        if not spec["bootstrap"]["bootstrap_runtime_store_path"].endswith("-remote-dev-bootstrap-runtime-aarch64-linux"):
-            raise Fail("runtime spec did not include bootstrap runtime store path")
-        if spec["bootstrap"]["bootstrap_runtime_fingerprint"] != bootstrap_runtime_fingerprint(
-            "aarch64-linux", spec["bootstrap"]["bootstrap_runtime_store_path"]
+        if spec["baseline_id"] != "remote-dev-agent-runtime-v1":
+            raise Fail("runtime spec did not use the agent runtime contract id")
+        if spec["bootstrap"]["agent_runtime_attr"] != "packages.aarch64-linux.remote-dev-agent-runtime":
+            raise Fail("runtime spec did not point at the agent runtime package")
+        if spec["bootstrap"]["agent_runtime_closure_manifest_file"] != "cloud/agent-runtime-closure-aarch64-linux.json":
+            raise Fail("runtime spec did not point at the agent runtime closure manifest")
+        if not spec["bootstrap"]["agent_runtime_store_path"].endswith("-remote-dev-agent-runtime-aarch64-linux"):
+            raise Fail("runtime spec did not include agent runtime store path")
+        if spec["bootstrap"]["agent_runtime_fingerprint"] != agent_runtime_fingerprint(
+            "aarch64-linux", spec["bootstrap"]["agent_runtime_store_path"]
         ):
-            raise Fail("runtime spec bootstrap runtime fingerprint mismatch")
-        if not (branch / "cloud/host-runtime-closure-aarch64-linux.json").is_file():
+            raise Fail("runtime spec agent runtime fingerprint mismatch")
+        if not (branch / "cloud/agent-runtime-closure-aarch64-linux.json").is_file():
             raise Fail("runtime closure manifest was not rendered")
         if spec["bootstrap"]["host_groups_catalog_file"] != "cloud/host-groups-catalog-aarch64-linux.json":
             raise Fail("runtime spec did not point at the host groups catalog")
@@ -2472,6 +2489,9 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             raise Fail("host groups catalog group set mismatch")
         if groups["default-dev-shell-prefill"]["commands"] != []:
             raise Fail("default dev shell prefill must not expose fake commands")
+        host_base_commands = [shim["command"] for shim in groups["host-base-tools"]["commands"]]
+        if host_base_commands != list(HOST_BASE_COMMANDS):
+            raise Fail("host-base-tools command surface mismatch")
         git_commands = [shim["command"] for shim in groups["git-core"]["commands"]]
         if git_commands != list(GIT_CORE_COMMANDS):
             raise Fail("git-core must expose the full gitMinimal command surface")

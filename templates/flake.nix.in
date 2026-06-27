@@ -13,17 +13,17 @@
       version = __VERSION__;
 
       hostArtifacts = {
-        host_config_id = "remote-dev-host-runtime-v2";
+        host_config_id = "remote-dev-agent-runtime-v1";
         image_contract_id = "remote-dev-cloud-host-v1";
         disk_count = 1;
         disko_layout_id = "single-disk-efi-ext4-v1";
-        host_runtime_specs = {
+        agent_runtime_specs = {
 __HOST_IMAGE_SPEC_ATTRS__
         };
         inherit version;
       };
 
-      hostRuntimeSpecs = {
+      agentRuntimeSpecs = {
 __HOST_IMAGE_SPEC_VALUES__
       };
 
@@ -41,29 +41,9 @@ __HOST_IMAGE_SPEC_VALUES__
           '';
         };
 
-      hostRuntimePackages = pkgs: remoteDevPackage: runtimePackage: [
-        pkgs.bash
-        pkgs.coreutils
-        pkgs.curl
-        pkgs.iproute2
-        pkgs.nix
-        pkgs.openssh
-        pkgs.systemd
-        pkgs.util-linux
-        remoteDevPackage
-        runtimePackage
-      ];
-
-      mkHostRuntimePackage = pkgs: remoteDevPackage: runtimePackage:
+      mkAgentRuntimePackage = pkgs: remoteDevPackage: runtimePackage:
         pkgs.buildEnv {
-          name = "remote-dev-host-runtime";
-          paths = hostRuntimePackages pkgs remoteDevPackage runtimePackage;
-          pathsToLink = [ "/bin" "/sbin" ];
-        };
-
-      mkBootstrapRuntimePackage = pkgs: remoteDevPackage: runtimePackage:
-        pkgs.buildEnv {
-          name = "remote-dev-bootstrap-runtime";
+          name = "remote-dev-agent-runtime";
           paths = [ remoteDevPackage runtimePackage ];
           pathsToLink = [ "/bin" ];
         };
@@ -111,6 +91,32 @@ __HOST_IMAGE_SPEC_VALUES__
           '';
         in
         {
+          host-base-tools = mkHostGroupBundle {
+            name = "host-base-tools";
+            closure = [
+              pkgs.bash
+              pkgs.coreutils
+              pkgs.curl
+              pkgs.iproute2
+              pkgs.nix
+              pkgs.openssh
+              pkgs.systemd
+              pkgs.util-linux
+            ];
+            commands = [
+              (mkHostGroupCommand pkgs.bash "bash")
+              (mkHostGroupCommand pkgs.curl "curl")
+              (mkHostGroupCommand pkgs.iproute2 "ip")
+              (mkHostGroupCommand pkgs.nix "nix")
+              (mkHostGroupCommand pkgs.nix "nix-store")
+              (mkHostGroupCommand pkgs.openssh "scp")
+              (mkHostGroupCommand pkgs.openssh "ssh")
+              (mkHostGroupCommand pkgs.openssh "ssh-keygen")
+              (mkHostGroupCommand pkgs.systemd "systemctl")
+              (mkHostGroupCommand pkgs.systemd "systemd-nspawn")
+              (mkHostGroupCommand pkgs.util-linux "nsenter")
+            ];
+          };
           git-core = mkHostGroupBundle {
             name = "git-core";
             closure = [ pkgs.gitMinimal ];
@@ -708,8 +714,8 @@ __HOST_IMAGE_SPEC_VALUES__
     in
     {
       lib.hostArtifacts = hostArtifacts;
-      lib.hostRuntimeSpecs = hostRuntimeSpecs;
-      lib.hostRuntimeSpec = hostRuntimeSpecs.x86_64 or hostRuntimeSpecs.aarch64;
+      lib.agentRuntimeSpecs = agentRuntimeSpecs;
+      lib.agentRuntimeSpec = agentRuntimeSpecs.x86_64 or agentRuntimeSpecs.aarch64;
       nixosConfigurations.remote-dev-kexec-installer = remoteDevKexecSystem;
 
       nixosModules.remote-dev-host = { lib, pkgs, ... }:
@@ -752,7 +758,10 @@ __HOST_IMAGE_SPEC_VALUES__
             %remote-dev-lease ALL=(ALL:ALL) NOPASSWD:SETENV: ALL
           '';
 
-          environment.systemPackages = hostRuntimePackages pkgs remoteDevPackage runtimePackage;
+          environment.systemPackages = [
+            (mkAgentRuntimePackage pkgs remoteDevPackage runtimePackage)
+            (hostGroupPackages system pkgs)."host-base-tools"
+          ];
 
           environment.etc."remote-dev/host-artifacts.json".text =
             builtins.toJSON hostArtifacts;
