@@ -584,6 +584,9 @@ def remove_generated_paths(branch_dir: Path) -> None:
             shutil.rmtree(path)
         elif path.exists():
             path.unlink()
+    for path in branch_dir.glob("cloud/*runtime-closure-*-linux.json"):
+        if path.is_file():
+            path.unlink()
 
 
 def copy_artifacts(
