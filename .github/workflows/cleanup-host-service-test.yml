@@ -1,0 +1,81 @@
+name: Cleanup HostService Test Artifacts
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout publisher
+        uses: actions/checkout@v4
+        with:
+          path: publisher
+          fetch-depth: 0
+
+      - name: Checkout host-service-test branch
+        uses: actions/checkout@v4
+        with:
+          ref: host-service-test
+          path: published
+          fetch-depth: 0
+
+      - name: Retain latest generated test tree
+        run: |
+          python3 publisher/scripts/publish.py cleanup-test-branch \
+            --branch-dir published \
+            --branch host-service-test \
+            --max-commits 5 \
+            --max-days 7
+
+      - name: Force-push host-service-test only
+        working-directory: published
+        run: git push --force origin host-service-test
+
+      - name: Delete old workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cutoff="$(date -u -d '7 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
+          runs="$(mktemp)"
+          old_runs="$(mktemp)"
+          old_success_runs="$(mktemp)"
+          trap 'rm -f "$runs" "$old_runs" "$old_success_runs"' EXIT
+
+          echo "Deleting completed workflow runs created before $cutoff"
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs" \
+            -f status=completed \
+            -f created="<$cutoff" \
+            -F per_page=100 \
+            --paginate \
+            --jq '.workflow_runs[] | [.id, .created_at, (.conclusion // "unknown"), .name] | @tsv' \
+            > "$old_runs"
+
+          echo "Keeping the latest 5 successful workflow runs"
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs" \
+            -f status=success \
+            -F per_page=100 \
+            --paginate \
+            --jq '.workflow_runs[] | [.created_at, .id, (.conclusion // "unknown"), .name] | @tsv' \
+            | sort -r \
+            | awk -F'\t' 'NR > 5 { print $2 "\t" $1 "\t" $3 "\t" $4 }' \
+            > "$old_success_runs"
+
+          cat "$old_runs" "$old_success_runs" \
+            | sort -u -k1,1 \
+            > "$runs"
+
+          count="$(wc -l < "$runs")"
+          echo "Found $count workflow runs to delete."
+
+          while IFS=$'\t' read -r run_id created_at conclusion name; do
+            [ -n "$run_id" ] || continue
+            echo "Deleting workflow run $run_id created_at=$created_at conclusion=$conclusion name=$name"
+            gh run delete "$run_id" --repo "$GITHUB_REPOSITORY"
+          done < "$runs"

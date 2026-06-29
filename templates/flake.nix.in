@@ -1,0 +1,951 @@
+{
+  description = "remote-dev binary and HostService artifacts";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+    disko.url = "github:nix-community/disko";
+    disko.inputs.nixpkgs.follows = "nixpkgs";
+  };
+
+  outputs = { self, nixpkgs, flake-utils, disko }:
+    let
+      version = __VERSION__;
+
+      hostArtifacts = {
+        host_config_id = "remote-dev-agent-runtime-v2";
+        image_contract_id = "remote-dev-cloud-host-v1";
+        disk_count = 1;
+        disko_layout_id = "single-disk-efi-ext4-v1";
+        agent_runtime_specs = {
+__HOST_IMAGE_SPEC_ATTRS__
+        };
+        inherit version;
+      };
+
+      agentRuntimeSpecs = {
+__HOST_IMAGE_SPEC_VALUES__
+      };
+
+      mkLocalBinaryPackage = pkgs: pname: binaryName: src:
+        pkgs.stdenvNoCC.mkDerivation {
+          inherit pname version src;
+          sourceRoot = ".";
+          dontUnpack = true;
+          nativeBuildInputs = [ pkgs.gnutar pkgs.gzip ];
+          installPhase = ''
+            mkdir -p $out/bin
+            tar xzf $src -C $out/bin
+            chmod +x $out/bin/${binaryName}
+          '';
+        };
+
+      mkAgentRuntimePackage = pkgs: remoteDevPackage: runtimePackage:
+        pkgs.buildEnv {
+          name = "remote-dev-agent-runtime";
+          paths = [ remoteDevPackage runtimePackage ];
+          pathsToLink = [ "/bin" ];
+        };
+
+      hostGroupPackages = system: pkgs:
+        let
+          mkHostGroupCommand = package: command: {
+            inherit package command;
+            relativePath = "bin/${command}";
+          };
+          mkHostGroupBundle =
+            { name
+            , closure
+            , commands ? []
+            }:
+            pkgs.runCommand "remote-dev-host-group-${name}-${system}" { } (
+              let
+                linkClosure = pkgs.lib.concatImapStringsSep "\n" (index: package: ''
+                  ln -s ${package} "$out/.remote-dev/closure-roots/${toString index}"
+                '') closure;
+                linkCommands = pkgs.lib.concatMapStringsSep "\n" (spec: ''
+                  source_path="${spec.package}/${spec.relativePath}"
+                  output_path="$out/${spec.relativePath}"
+                  if [ ! -e "$source_path" ]; then
+                    echo "host group ${name}: missing command ${spec.command} at $source_path" >&2
+                    exit 1
+                  fi
+                  if [ -e "$output_path" ]; then
+                    echo "host group ${name}: duplicate command output ${spec.relativePath}" >&2
+                    exit 1
+                  fi
+                  mkdir -p "$(dirname "$output_path")"
+                  ln -s "$source_path" "$output_path"
+                '') commands;
+              in
+              ''
+                mkdir -p "$out/.remote-dev/closure-roots"
+                ${linkClosure}
+                ${linkCommands}
+              ''
+            );
+          nixSourceBaseline = pkgs.runCommand "remote-dev-nix-source-baseline-${system}" { } ''
+            mkdir -p $out
+            ln -s ${pkgs.path} $out/nixpkgs
+          '';
+        in
+        {
+          host-base-tools = mkHostGroupBundle {
+            name = "host-base-tools";
+            closure = [
+              pkgs.bash
+              pkgs.coreutils
+              pkgs.curl
+              pkgs.iproute2
+              pkgs.nix
+              pkgs.openssh
+              pkgs.systemd
+              pkgs.util-linux
+            ];
+            commands = [
+              (mkHostGroupCommand pkgs.bash "bash")
+              (mkHostGroupCommand pkgs.curl "curl")
+              (mkHostGroupCommand pkgs.iproute2 "ip")
+              (mkHostGroupCommand pkgs.nix "nix")
+              (mkHostGroupCommand pkgs.nix "nix-store")
+              (mkHostGroupCommand pkgs.openssh "scp")
+              (mkHostGroupCommand pkgs.openssh "ssh")
+              (mkHostGroupCommand pkgs.openssh "ssh-keygen")
+              (mkHostGroupCommand pkgs.systemd "systemctl")
+              (mkHostGroupCommand pkgs.systemd "systemd-nspawn")
+              (mkHostGroupCommand pkgs.util-linux "nsenter")
+            ];
+          };
+          git-core = mkHostGroupBundle {
+            name = "git-core";
+            closure = [ pkgs.gitMinimal ];
+            commands = [
+              (mkHostGroupCommand pkgs.gitMinimal "git")
+              (mkHostGroupCommand pkgs.gitMinimal "git-cvsserver")
+              (mkHostGroupCommand pkgs.gitMinimal "git-http-backend")
+              (mkHostGroupCommand pkgs.gitMinimal "git-jump")
+              (mkHostGroupCommand pkgs.gitMinimal "git-receive-pack")
+              (mkHostGroupCommand pkgs.gitMinimal "git-shell")
+              (mkHostGroupCommand pkgs.gitMinimal "git-upload-archive")
+              (mkHostGroupCommand pkgs.gitMinimal "git-upload-pack")
+              (mkHostGroupCommand pkgs.gitMinimal "scalar")
+            ];
+          };
+          mosh-transport = mkHostGroupBundle {
+            name = "mosh-transport";
+            closure = [ pkgs.mosh ];
+            commands = [ (mkHostGroupCommand pkgs.mosh "mosh-server") ];
+          };
+          default-dev-shell-prefill = mkHostGroupBundle {
+            name = "default-dev-shell-prefill";
+            closure = [
+              pkgs.bashInteractive
+              pkgs.stdenv.cc.cc.lib
+            ];
+          };
+          nix-source-baseline = mkHostGroupBundle {
+            name = "nix-source-baseline";
+            closure = [ nixSourceBaseline ];
+          };
+          shell-startup = mkHostGroupBundle {
+            name = "shell-startup";
+            closure = [ pkgs.zsh pkgs.starship ];
+            commands = [
+              (mkHostGroupCommand pkgs.zsh "zsh")
+              (mkHostGroupCommand pkgs.starship "starship")
+            ];
+          };
+          shell-extras = mkHostGroupBundle {
+            name = "shell-extras";
+            closure = [ pkgs.fzf ];
+            commands = [ (mkHostGroupCommand pkgs.fzf "fzf") ];
+          };
+          vscode-compat = mkHostGroupBundle {
+            name = "vscode-compat";
+            closure = [ pkgs.patchelf ];
+            commands = [ (mkHostGroupCommand pkgs.patchelf "patchelf") ];
+          };
+          compression-tools = mkHostGroupBundle {
+            name = "compression-tools";
+            closure = [ pkgs.zstd ];
+            commands = [ (mkHostGroupCommand pkgs.zstd "zstd") ];
+          };
+          build-baseline = mkHostGroupBundle {
+            name = "build-baseline";
+            closure = [ pkgs.gnumake pkgs.pkg-config ];
+            commands = [
+              (mkHostGroupCommand pkgs.pkg-config "pkg-config")
+              (mkHostGroupCommand pkgs.gnumake "make")
+            ];
+          };
+          c-toolchain-gcc = mkHostGroupBundle {
+            name = "c-toolchain-gcc";
+            closure = [ pkgs.gcc ];
+            commands = [
+              (mkHostGroupCommand pkgs.gcc "cc")
+              (mkHostGroupCommand pkgs.gcc "gcc")
+            ];
+          };
+          c-toolchain-clang = mkHostGroupBundle {
+            name = "c-toolchain-clang";
+            closure = [ pkgs.clang ];
+            commands = [ (mkHostGroupCommand pkgs.clang "clang") ];
+          };
+          dev-diagnostics = mkHostGroupBundle {
+            name = "dev-diagnostics";
+            closure = [
+              pkgs.file
+              pkgs.glibc.bin
+              pkgs.strace
+            ];
+            commands = [
+              (mkHostGroupCommand pkgs.strace "strace")
+              (mkHostGroupCommand pkgs.file "file")
+              (mkHostGroupCommand pkgs.glibc.bin "ldd")
+            ];
+          };
+        };
+
+      mkTakeoverRunner = pkgs:
+        pkgs.writeShellApplication {
+          name = "remote-dev-takeover";
+          runtimeInputs = [
+            pkgs.bash
+            pkgs.coreutils
+            pkgs.curl
+            pkgs.e2fsprogs
+            pkgs.gawk
+            pkgs.gnugrep
+            pkgs.gnused
+            pkgs.jq
+            pkgs.nix
+            pkgs.nixos-install-tools
+            pkgs.systemd
+            pkgs.util-linux
+            disko.packages.${pkgs.stdenv.hostPlatform.system}.disko
+          ];
+          text = ''
+            set -euo pipefail
+
+            PLAN_FILE=/run/remote-dev/takeover-plan.json
+            CONFIG_DIR=/run/remote-dev/target-config
+            LOG_FILE=/run/remote-dev/takeover.log
+            TARGET_DISK=""
+            CURRENT_PHASE=bootstrap
+
+            log() {
+              printf 'remote-dev takeover: %s\n' "$*"
+            }
+
+            die() {
+              printf 'remote-dev takeover: %s\n' "$*" >&2
+              exit 1
+            }
+
+            phase() {
+              CURRENT_PHASE="$1"
+              label="''${2:-$CURRENT_PHASE}"
+              log "phase: $label"
+              if [ -s "$PLAN_FILE" ]; then
+                post_event taking_over "$CURRENT_PHASE" "takeover phase: $label"
+              fi
+            }
+
+            setup_logging() {
+              mkdir -p /run/remote-dev
+              exec > >(tee -a "$LOG_FILE") 2>&1
+              log "logging to provider serial/system console and $LOG_FILE"
+            }
+
+            persist_takeover_log() {
+              if mountpoint -q /mnt 2>/dev/null; then
+                mkdir -p /mnt/var/log/remote-dev
+                cp "$LOG_FILE" /mnt/var/log/remote-dev/takeover.log || true
+              fi
+            }
+
+            report_failure() {
+              status="$?"
+              if [ "$status" -ne 0 ]; then
+                detail="$(tail -n 80 "$LOG_FILE" 2>/dev/null | tr '\r\n' '  ' | tail -c 480 || true)"
+                [ -n "$detail" ] || detail="exit status: $status"
+                log "FAILED during phase: $CURRENT_PHASE"
+                log "exit status: $status"
+                log "No automatic retry will run. Inspect the provider serial/system console for this log."
+                log "If /mnt was already mounted, the latest log copy may also be at /mnt/var/log/remote-dev/takeover.log."
+                if [ -s "$PLAN_FILE" ]; then
+                  post_event failed "$CURRENT_PHASE" "takeover failed" "$detail"
+                fi
+              fi
+            }
+
+            field() {
+              jq -r --arg key "$1" '.[$key] // ""' "$PLAN_FILE"
+            }
+
+            post_event() {
+              state="$1"
+              phase_name="$2"
+              message="$3"
+              last_error="''${4:-}"
+              host_service_url="$(field host_service_url)"
+              prepare_id="$(field prepare_id)"
+              callback_token="$(field callback_token)"
+              [ -n "$host_service_url" ] || return 0
+              [ -n "$prepare_id" ] || return 0
+              [ -n "$callback_token" ] || return 0
+              if [ -n "$last_error" ]; then
+                curl -fsS --connect-timeout 10 --max-time 30 -X POST \
+                  -H "Authorization: Bearer $callback_token" \
+                  --data-urlencode "state=$state" \
+                  --data-urlencode "phase=$phase_name" \
+                  --data-urlencode "message=$message" \
+                  --data-urlencode "last_error=$last_error" \
+                  "$host_service_url/v1/host-prepares/$prepare_id/events" >/dev/null || true
+              else
+                curl -fsS --connect-timeout 10 --max-time 30 -X POST \
+                  -H "Authorization: Bearer $callback_token" \
+                  --data-urlencode "state=$state" \
+                  --data-urlencode "phase=$phase_name" \
+                  --data-urlencode "message=$message" \
+                  "$host_service_url/v1/host-prepares/$prepare_id/events" >/dev/null || true
+              fi
+            }
+
+            nix_string() {
+              jq -Rr @json
+            }
+
+            decode_plan() {
+              mkdir -p /run/remote-dev
+              plan_b64=""
+              read -r -a cmdline_args < /proc/cmdline
+              for arg in "''${cmdline_args[@]}"; do
+                case "$arg" in
+                  remote_dev_takeover_plan_b64=*) plan_b64="''${arg#remote_dev_takeover_plan_b64=}" ;;
+                esac
+              done
+              [ -n "$plan_b64" ] || die "missing remote_dev_takeover_plan_b64 kernel parameter"
+              printf '%s' "$plan_b64" | base64 -d > "$PLAN_FILE"
+              jq -e . "$PLAN_FILE" >/dev/null
+            }
+
+            choose_target_disk() {
+              disk_by_id="$(field target_disk_by_id)"
+              disk_path="$(field target_disk)"
+              if [ -n "$disk_by_id" ] && [ -b "$disk_by_id" ]; then
+                TARGET_DISK="$(readlink -f "$disk_by_id")"
+              else
+                [ -n "$disk_path" ] || die "takeover plan did not include target_disk"
+                [ -b "$disk_path" ] || die "target disk is not a block device: $disk_path"
+                TARGET_DISK="$(readlink -f "$disk_path")"
+              fi
+              [ -b "$TARGET_DISK" ] || die "resolved target disk is not a block device: $TARGET_DISK"
+            }
+
+            disk_property() {
+              disk="$1"
+              key="$2"
+              udevadm info --query=property --name "$disk" 2>/dev/null \
+                | awk -F= -v key="$key" '$1 == key { print $2; exit }'
+            }
+
+            verify_disk_identity() {
+              expected_size="$(field target_disk_size_bytes)"
+              expected_serial="$(field target_disk_serial)"
+              expected_wwn="$(field target_disk_wwn)"
+              current_size="$(blockdev --getsize64 "$TARGET_DISK")"
+              [ -n "$expected_size" ] || die "takeover plan did not include target disk size"
+              [ "$current_size" = "$expected_size" ] || die "target disk size changed: expected $expected_size, got $current_size"
+
+              if [ -n "$expected_serial" ]; then
+                current_serial="$(disk_property "$TARGET_DISK" ID_SERIAL)"
+                [ -n "$current_serial" ] || current_serial="$(lsblk -dnro SERIAL "$TARGET_DISK" | awk 'NF { print; exit }')"
+                [ "$current_serial" = "$expected_serial" ] || die "target disk serial changed"
+              fi
+
+              if [ -n "$expected_wwn" ]; then
+                current_wwn="$(disk_property "$TARGET_DISK" ID_WWN)"
+                [ -n "$current_wwn" ] || current_wwn="$(lsblk -dnro WWN "$TARGET_DISK" | awk 'NF { print; exit }')"
+                [ "$current_wwn" = "$expected_wwn" ] || die "target disk WWN changed"
+              fi
+            }
+
+            run_nix() {
+              nix --extra-experimental-features 'nix-command flakes' "$@"
+            }
+
+            write_target_flake() {
+              mkdir -p "$CONFIG_DIR"
+              remote_dev_bin_ref="$(field remote_dev_bin_ref)"
+              [ -n "$remote_dev_bin_ref" ] || die "takeover plan did not include remote_dev_bin_ref"
+              cat > "$CONFIG_DIR/flake.nix" <<REMOTE_DEV_FLAKE
+            {
+              inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+              inputs.flake-utils.url = "github:numtide/flake-utils";
+              inputs.disko.url = "github:nix-community/disko";
+              inputs.disko.inputs.nixpkgs.follows = "nixpkgs";
+              inputs.remote-dev-bin.url = "$remote_dev_bin_ref";
+              inputs.remote-dev-bin.inputs.nixpkgs.follows = "nixpkgs";
+              inputs.remote-dev-bin.inputs.flake-utils.follows = "flake-utils";
+
+              outputs = { nixpkgs, flake-utils, remote-dev-bin, disko, ... }:
+                {
+                  nixosConfigurations.remote-dev-host = nixpkgs.lib.nixosSystem {
+                    system = "x86_64-linux";
+                    modules = [
+                      remote-dev-bin.nixosModules.remote-dev-host
+                      remote-dev-bin.nixosModules.single-disk-efi-ext4
+                      ./hardware-configuration.nix
+                      ./configuration.nix
+                    ];
+                  };
+                } // flake-utils.lib.eachDefaultSystem (system: {
+                  apps.disko = {
+                    type = "app";
+                    program = "\''${disko.packages.\''${system}.disko}/bin/disko";
+                  };
+                });
+            }
+            REMOTE_DEV_FLAKE
+              cat > "$CONFIG_DIR/hardware-configuration.nix" <<'REMOTE_DEV_EMPTY_HARDWARE'
+            { ... }:
+
+            {
+              # Disk filesystems are owned by the remote-dev disko module. Do not
+              # generate fileSystems here, or nixos-install will see duplicate /
+              # and /boot definitions after disko formats the target.
+            }
+            REMOTE_DEV_EMPTY_HARDWARE
+            }
+
+            write_registration_files() {
+              mkdir -p /mnt/etc/remote-dev
+              field host_service_url > /mnt/etc/remote-dev/host-service-url
+              field prepare_id > /mnt/etc/remote-dev/firstboot-prepare-id
+              field callback_token > /mnt/etc/remote-dev/firstboot-callback-token
+              field bootstrap_public_ip > /mnt/etc/remote-dev/bootstrap-public-ip
+              chmod 600 /mnt/etc/remote-dev/firstboot-callback-token
+              cat > /mnt/etc/remote-dev/firstboot-register.sh <<'REMOTE_DEV_FIRSTBOOT'
+            #!/usr/bin/env bash
+            set -euo pipefail
+            mkdir -p /var/log/remote-dev
+            exec > >(tee -a /var/log/remote-dev/firstboot-register.log) 2>&1
+            marker=/var/lib/remote-dev/firstboot-register.done
+            response=/var/lib/remote-dev/firstboot-register-response.json
+            current_phase=firstboot_register
+            failure_detail=
+            post_event() {
+              state="$1"
+              phase="$2"
+              message="$3"
+              last_error="''${4:-}"
+              base_url="$(cat /etc/remote-dev/host-service-url)"
+              prepare_id="$(cat /etc/remote-dev/firstboot-prepare-id)"
+              callback_token="$(cat /etc/remote-dev/firstboot-callback-token)"
+              if [ -n "$last_error" ]; then
+                curl -fsS --connect-timeout 10 --max-time 30 -X POST \
+                  -H "Authorization: Bearer $callback_token" \
+                  --data-urlencode "state=$state" \
+                  --data-urlencode "phase=$phase" \
+                  --data-urlencode "message=$message" \
+                  --data-urlencode "last_error=$last_error" \
+                  "$base_url/v1/host-prepares/$prepare_id/events" >/dev/null || true
+              else
+                curl -fsS --connect-timeout 10 --max-time 30 -X POST \
+                  -H "Authorization: Bearer $callback_token" \
+                  --data-urlencode "state=$state" \
+                  --data-urlencode "phase=$phase" \
+                  --data-urlencode "message=$message" \
+                  "$base_url/v1/host-prepares/$prepare_id/events" >/dev/null || true
+              fi
+            }
+            report_failure() {
+              status="$?"
+              if [ "$status" -ne 0 ]; then
+                if [ -n "$failure_detail" ]; then
+                  last_error="$failure_detail"
+                else
+                  last_error="exit status: $status"
+                fi
+                post_event firstboot "$current_phase" "firstboot registration failed; retrying" "$last_error"
+              fi
+            }
+            trap report_failure EXIT
+            [ -e "$marker" ] && exit 0
+            mkdir -p /var/lib/remote-dev
+            echo "remote-dev firstboot register: starting"
+            base_url="$(cat /etc/remote-dev/host-service-url)"
+            prepare_id="$(cat /etc/remote-dev/firstboot-prepare-id)"
+            callback_token="$(cat /etc/remote-dev/firstboot-callback-token)"
+            fallback_ip="$(cat /etc/remote-dev/bootstrap-public-ip 2>/dev/null || true)"
+            post_event firstboot firstboot_register "firstboot registration started"
+            public_ip="$(curl -fsS --connect-timeout 5 --max-time 15 https://api.ipify.org || true)"
+            [ -n "$public_ip" ] || public_ip="$fallback_ip"
+            [ -n "$public_ip" ] || { echo "could not detect public IP for HostService management target" >&2; exit 1; }
+            management_target="root@$public_ip"
+            echo "remote-dev firstboot register: management_target=$management_target"
+            tmp="$(mktemp)"
+            set +e
+            http_status="$(curl -sS --connect-timeout 10 --max-time 60 \
+              --output "$tmp" \
+              --write-out "%{http_code}" \
+              -X POST \
+              -H "Authorization: Bearer $callback_token" \
+              --data-urlencode "management_target=$management_target" \
+              "$base_url/v1/host-prepares/$prepare_id/firstboot")"
+            curl_status="$?"
+            set -e
+            if [ "$curl_status" -ne 0 ]; then
+              [ -n "$http_status" ] || http_status=unavailable
+              body="$(tr '\n' ' ' < "$tmp" | cut -c1-500 || true)"
+              failure_detail="curl exit status: $curl_status; http_status=$http_status; body=$body"
+              echo "remote-dev firstboot register: $failure_detail" >&2
+              exit "$curl_status"
+            fi
+            case "$http_status" in
+              2*) ;;
+              *)
+                body="$(tr '\n' ' ' < "$tmp" | cut -c1-500 || true)"
+                failure_detail="http_status=$http_status; body=$body"
+                echo "remote-dev firstboot register: $failure_detail" >&2
+                exit 22
+                ;;
+            esac
+            mv "$tmp" "$response"
+            touch "$marker"
+            post_event ready firstboot_register "firstboot registration completed"
+            trap - EXIT
+            echo "remote-dev firstboot register: completed"
+            REMOTE_DEV_FIRSTBOOT
+              chmod 700 /mnt/etc/remote-dev/firstboot-register.sh
+            }
+
+            write_configuration() {
+              disk_nix="$(printf '%s' "$TARGET_DISK" | nix_string)"
+              management_public_key_nix="$(field management_public_key | nix_string)"
+              cat > "$CONFIG_DIR/configuration.nix" <<REMOTE_DEV_NIXOS
+            { pkgs, ... }:
+
+            {
+              remote-dev.hostArtifacts.singleDiskEfiExt4.disk = $disk_nix;
+              networking.hostName = "remote-dev-host";
+              networking.networkmanager.enable = true;
+              nix.settings.experimental-features = [ "nix-command" "flakes" ];
+              users.users.root.hashedPassword = "$1$rdroot$DYmS1f6QxQhrWy7GGmAar/";
+              users.users.root.openssh.authorizedKeys.keys = [ $management_public_key_nix ];
+
+              systemd.services.remote-dev-firstboot-register = {
+                description = "Register this host with remote-dev HostService";
+                wantedBy = [ "multi-user.target" ];
+                wants = [ "network-online.target" ];
+                after = [ "network-online.target" "sshd.service" ];
+                path = [ pkgs.bash pkgs.coreutils pkgs.curl pkgs.jq ];
+                unitConfig.StartLimitIntervalSec = 0;
+                serviceConfig = {
+                  Type = "oneshot";
+                  Restart = "on-failure";
+                  RestartSec = "30s";
+                };
+                script = "exec /etc/remote-dev/firstboot-register.sh";
+              };
+            }
+            REMOTE_DEV_NIXOS
+            }
+
+            apply_disk_layout() {
+              run_nix run "$CONFIG_DIR#disko" -- --mode disko --flake "$CONFIG_DIR#remote-dev-host"
+            }
+
+            copy_nixos_config() {
+              mkdir -p /mnt/etc/nixos
+              cp "$CONFIG_DIR/flake.nix" "$CONFIG_DIR/flake.lock" "$CONFIG_DIR/configuration.nix" "$CONFIG_DIR/hardware-configuration.nix" /mnt/etc/nixos/
+            }
+
+            write_authorized_keys() {
+              mkdir -p /mnt/root/.ssh
+              field management_public_key > /mnt/root/.ssh/authorized_keys
+              chmod 700 /mnt/root/.ssh
+              chmod 600 /mnt/root/.ssh/authorized_keys
+            }
+
+            write_install_proof() {
+              install_id="install-$(date -u +%Y%m%dT%H%M%SZ)-$(cat /proc/sys/kernel/random/uuid)"
+              lock_hash="sha256-$(sha256sum "$CONFIG_DIR/flake.lock" | awk '{print $1}')"
+              jq -n \
+                --arg host_config_id "$(field host_config_id)" \
+                --arg image_contract_id "$(field image_contract_id)" \
+                --argjson disk_count "$(field disk_count)" \
+                --arg flake_lock_hash "$lock_hash" \
+                --arg disko_layout_id "$(field disko_layout_id)" \
+                --arg current_system "x86_64-linux" \
+                --arg remote_dev_bin_ref "$(field remote_dev_bin_ref)" \
+                --arg install_id "$install_id" \
+                '{
+                  host_config_id: $host_config_id,
+                  image_contract_id: $image_contract_id,
+                  disk_count: $disk_count,
+                  flake_lock_hash: $flake_lock_hash,
+                  disko_layout_id: $disko_layout_id,
+                  current_system: $current_system,
+                  remote_dev_bin_ref: $remote_dev_bin_ref,
+                  install_id: $install_id,
+                  install_source: "installer",
+                  clean_install: true
+                }' > /mnt/etc/remote-dev/host-install-proof.json
+            }
+
+            install_nixos() {
+              export PATH="/nix/var/nix/profiles/system/sw/bin:/nix/var/nix/profiles/system/sw/sbin:$PATH"
+              nixos-install --root /mnt --flake "$CONFIG_DIR#remote-dev-host" --no-root-passwd
+            }
+
+            main() {
+              setup_logging
+              trap report_failure EXIT
+              phase decode_takeover_plan "decode takeover plan"
+              decode_plan
+              phase choose_target_disk "choose target disk"
+              choose_target_disk
+              phase verify_target_disk_identity "verify target disk identity"
+              verify_disk_identity
+              log "verified target disk $TARGET_DISK; starting destructive install"
+              phase write_target_flake "write target flake"
+              write_target_flake
+              phase write_target_configuration "write target configuration"
+              write_configuration
+              phase lock_target_flake "lock target flake"
+              run_nix flake lock "$CONFIG_DIR"
+              phase apply_disk_layout "apply disk layout"
+              apply_disk_layout
+              phase copy_nixos_configuration "copy NixOS configuration"
+              copy_nixos_config
+              phase install_nixos "install NixOS"
+              install_nixos
+              phase write_management_authorized_keys "write management authorized_keys"
+              write_authorized_keys
+              phase write_firstboot_registration_files "write firstboot registration files"
+              write_registration_files
+              phase write_install_proof "write install proof"
+              write_install_proof
+              phase persist_takeover_log "persist takeover log"
+              log "install complete; rebooting into remote-dev NixOS host"
+              persist_takeover_log
+              trap - EXIT
+              systemctl reboot
+            }
+
+            main "$@"
+          '';
+        };
+
+      remoteDevKexecSystem = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          ({ modulesPath, pkgs, ... }:
+            let
+              takeoverRunner = mkTakeoverRunner pkgs;
+            in
+            {
+              imports = [ (modulesPath + "/installer/netboot/netboot-minimal.nix") ];
+
+              boot.kernelParams = [
+                "console=tty0"
+                "console=ttyS0,115200n8"
+                "remote_dev_takeover=1"
+              ];
+              boot.zfs.forceImportRoot = false;
+
+              nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
+              environment.systemPackages = [
+                pkgs.curl
+                pkgs.jq
+                pkgs.nix
+                pkgs.nixos-install-tools
+                pkgs.util-linux
+                disko.packages.${"x86_64-linux"}.disko
+                takeoverRunner
+              ];
+
+              systemd.services.remote-dev-takeover = {
+                description = "remote-dev HostService destructive takeover";
+                wantedBy = [ "multi-user.target" ];
+                wants = [ "network-online.target" ];
+                after = [ "network-online.target" ];
+                serviceConfig = {
+                  Type = "oneshot";
+                  StandardOutput = "journal+console";
+                  StandardError = "journal+console";
+                };
+                script = "exec ${takeoverRunner}/bin/remote-dev-takeover";
+              };
+
+              system.stateVersion = "25.11";
+            })
+        ];
+      };
+
+      mkKexecInstallerPackage = pkgs:
+        pkgs.runCommand "remote-dev-kexec-installer-${version}" { } ''
+          mkdir -p $out
+          ln -s ${remoteDevKexecSystem.config.system.build.kexecTree}/bzImage $out/bzImage
+          ln -s ${remoteDevKexecSystem.config.system.build.kexecTree}/initrd.gz $out/initrd.gz
+          ln -s ${remoteDevKexecSystem.config.system.build.kexecTree}/kexec-boot $out/kexec-boot
+          cat > $out/remote-dev-kexec-runner <<'REMOTE_DEV_KEXEC_RUNNER'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [ "$#" -ne 1 ]; then
+            echo "usage: remote-dev-kexec-runner <takeover-plan-base64>" >&2
+            exit 2
+          fi
+          plan_b64="$1"
+          script_dir="$(cd -- "$(dirname -- "''${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+          command_line="init=${remoteDevKexecSystem.config.system.build.toplevel}/init ${toString remoteDevKexecSystem.config.boot.kernelParams} remote_dev_takeover_plan_b64=$plan_b64"
+          kexec --load "$script_dir/bzImage" \
+            --initrd="$script_dir/initrd.gz" \
+            --command-line "$command_line"
+          sync
+          systemctl kexec 2>/dev/null || kexec -e
+          REMOTE_DEV_KEXEC_RUNNER
+          chmod +x $out/remote-dev-kexec-runner
+        '';
+    in
+    {
+      lib.hostArtifacts = hostArtifacts;
+      lib.agentRuntimeSpecs = agentRuntimeSpecs;
+      lib.agentRuntimeSpec = agentRuntimeSpecs.x86_64 or agentRuntimeSpecs.aarch64;
+      nixosConfigurations.remote-dev-kexec-installer = remoteDevKexecSystem;
+
+      nixosModules.remote-dev-host = { lib, pkgs, ... }:
+        let
+          system = pkgs.stdenv.hostPlatform.system;
+          remoteDevPackage = self.packages.${system}.remote-dev or
+            (throw "remote-dev artifact is not published for ${system} in this remote-dev-bin ref");
+          runtimePackage = self.packages.${system}.remote-dev-runtime or
+            (throw "remote-dev-runtime artifact is not published for ${system} in this remote-dev-bin ref");
+        in
+        {
+          services.openssh.enable = true;
+          services.openssh.settings.PasswordAuthentication = false;
+          services.openssh.settings.KbdInteractiveAuthentication = false;
+          services.openssh.settings.PermitRootLogin = "prohibit-password";
+          users.mutableUsers = false;
+          users.users.root.hashedPassword = "$1$rdroot$DYmS1f6QxQhrWy7GGmAar/";
+
+          networking.firewall.allowedUDPPortRanges = [
+            { from = 60000; to = 61000; }
+          ];
+
+          documentation.enable = false;
+          documentation.nixos.enable = false;
+          documentation.man.enable = false;
+          documentation.man.man-db.enable = false;
+          documentation.info.enable = false;
+          documentation.doc.enable = false;
+
+          services.amazon-ssm-agent.enable = lib.mkForce false;
+
+          users.groups."remote-dev-lease" = {};
+          nixpkgs.flake.setFlakeRegistry = false;
+          nixpkgs.flake.setNixPath = false;
+          nix.registry = lib.mkForce { };
+          nix.nixPath = lib.mkForce [ ];
+          nix.channel.enable = false;
+          nix.settings.trusted-users = [ "root" "@remote-dev-lease" ];
+          security.sudo.extraConfig = ''
+            %remote-dev-lease ALL=(ALL:ALL) NOPASSWD:SETENV: ALL
+          '';
+
+          environment.systemPackages = [
+            (mkAgentRuntimePackage pkgs remoteDevPackage runtimePackage)
+            (hostGroupPackages system pkgs)."host-base-tools"
+          ];
+
+          environment.etc."remote-dev/host-artifacts.json".text =
+            builtins.toJSON hostArtifacts;
+
+          systemd.tmpfiles.rules = [
+            "d /var/lib/remote-dev 0755 root root - -"
+            "d /var/lib/remote-dev/leases 0711 root root - -"
+            "d /var/lib/remote-dev/templates 0755 root root - -"
+            "d /var/lib/remote-dev/templates/nspawn-v1 0755 root root - -"
+          ];
+
+          system.stateVersion = "25.11";
+        };
+
+      nixosModules.remote-dev-firstboot-register = { pkgs, ... }:
+        let
+          firstbootRegisterScript = pkgs.writeShellScript "remote-dev-firstboot-register" ''
+            set -euo pipefail
+            mkdir -p /var/log/remote-dev
+            exec > >(tee -a /var/log/remote-dev/firstboot-register.log) 2>&1
+            marker=/var/lib/remote-dev/firstboot-register.done
+            response=/var/lib/remote-dev/firstboot-register-response.json
+            current_phase=firstboot_register
+            failure_detail=
+
+            post_event() {
+              state="$1"
+              phase="$2"
+              message="$3"
+              last_error="''${4:-}"
+              base_url="$(cat /etc/remote-dev/host-service-url)"
+              prepare_id="$(cat /etc/remote-dev/firstboot-prepare-id)"
+              callback_token="$(cat /etc/remote-dev/firstboot-callback-token)"
+              if [ -n "$last_error" ]; then
+                curl -fsS --connect-timeout 10 --max-time 30 -X POST \
+                  -H "Authorization: Bearer $callback_token" \
+                  --data-urlencode "state=$state" \
+                  --data-urlencode "phase=$phase" \
+                  --data-urlencode "message=$message" \
+                  --data-urlencode "last_error=$last_error" \
+                  "$base_url/v1/host-prepares/$prepare_id/events" >/dev/null || true
+              else
+                curl -fsS --connect-timeout 10 --max-time 30 -X POST \
+                  -H "Authorization: Bearer $callback_token" \
+                  --data-urlencode "state=$state" \
+                  --data-urlencode "phase=$phase" \
+                  --data-urlencode "message=$message" \
+                  "$base_url/v1/host-prepares/$prepare_id/events" >/dev/null || true
+              fi
+            }
+
+            report_failure() {
+              status="$?"
+              if [ "$status" -ne 0 ]; then
+                if [ -n "$failure_detail" ]; then
+                  last_error="$failure_detail"
+                else
+                  last_error="exit status: $status"
+                fi
+                post_event firstboot "$current_phase" "firstboot registration failed; retrying" "$last_error"
+              fi
+            }
+
+            trap report_failure EXIT
+            [ -e "$marker" ] && exit 0
+            mkdir -p /var/lib/remote-dev
+            echo "remote-dev firstboot register: starting"
+            base_url="$(cat /etc/remote-dev/host-service-url)"
+            prepare_id="$(cat /etc/remote-dev/firstboot-prepare-id)"
+            callback_token="$(cat /etc/remote-dev/firstboot-callback-token)"
+            fallback_ip="$(cat /etc/remote-dev/bootstrap-public-ip 2>/dev/null || true)"
+            post_event firstboot firstboot_register "firstboot registration started"
+            public_ip="$(curl -fsS --connect-timeout 5 --max-time 15 https://api.ipify.org || true)"
+            [ -n "$public_ip" ] || public_ip="$fallback_ip"
+            [ -n "$public_ip" ] || { echo "could not detect public IP for HostService management target" >&2; exit 1; }
+            management_target="root@$public_ip"
+            echo "remote-dev firstboot register: management_target=$management_target"
+            tmp="$(mktemp)"
+            set +e
+            http_status="$(curl -sS --connect-timeout 10 --max-time 60 \
+              --output "$tmp" \
+              --write-out "%{http_code}" \
+              -X POST \
+              -H "Authorization: Bearer $callback_token" \
+              --data-urlencode "management_target=$management_target" \
+              "$base_url/v1/host-prepares/$prepare_id/firstboot")"
+            curl_status="$?"
+            set -e
+            if [ "$curl_status" -ne 0 ]; then
+              [ -n "$http_status" ] || http_status=unavailable
+              body="$(tr '\n' ' ' < "$tmp" | cut -c1-500 || true)"
+              failure_detail="curl exit status: $curl_status; http_status=$http_status; body=$body"
+              echo "remote-dev firstboot register: $failure_detail" >&2
+              exit "$curl_status"
+            fi
+            case "$http_status" in
+              2*) ;;
+              *)
+                body="$(tr '\n' ' ' < "$tmp" | cut -c1-500 || true)"
+                failure_detail="http_status=$http_status; body=$body"
+                echo "remote-dev firstboot register: $failure_detail" >&2
+                exit 22
+                ;;
+            esac
+            mv "$tmp" "$response"
+            touch "$marker"
+            post_event ready firstboot_register "firstboot registration completed"
+            trap - EXIT
+            echo "remote-dev firstboot register: completed"
+          '';
+        in
+        {
+          environment.etc."remote-dev/firstboot-register.sh" = {
+            source = firstbootRegisterScript;
+            mode = "0700";
+          };
+
+          systemd.services.remote-dev-firstboot-register = {
+            description = "Register this host with remote-dev HostService";
+            wants = [ "network-online.target" ];
+            after = [ "network-online.target" "sshd.service" ];
+            path = [ pkgs.bash pkgs.coreutils pkgs.curl ];
+            unitConfig.StartLimitIntervalSec = 0;
+            serviceConfig = {
+              Type = "oneshot";
+              Restart = "on-failure";
+              RestartSec = "30s";
+            };
+            script = "exec /etc/remote-dev/firstboot-register.sh";
+          };
+        };
+
+      nixosModules.single-disk-efi-ext4 = { config, lib, ... }:
+        let
+          cfg = config.remote-dev.hostArtifacts.singleDiskEfiExt4;
+        in
+        {
+          imports = [ disko.nixosModules.disko ];
+
+          options.remote-dev.hostArtifacts.singleDiskEfiExt4.disk = lib.mkOption {
+            type = lib.types.str;
+            description = "Block device that will be wiped for the remote-dev HostPool baseline.";
+          };
+
+          config = {
+            boot.loader.systemd-boot.enable = true;
+            boot.loader.efi.canTouchEfiVariables = false;
+
+            disko.devices.disk.remote-dev-root = {
+              type = "disk";
+              device = cfg.disk;
+              content = {
+                type = "gpt";
+                partitions = {
+                  ESP = {
+                    priority = 1;
+                    size = "512M";
+                    type = "EF00";
+                    content = {
+                      type = "filesystem";
+                      format = "vfat";
+                      mountpoint = "/boot";
+                      mountOptions = [ "umask=0077" ];
+                    };
+                  };
+                  root = {
+                    size = "100%";
+                    content = {
+                      type = "filesystem";
+                      format = "ext4";
+                      mountpoint = "/";
+                    };
+                  };
+                };
+              };
+            };
+          };
+        };
+    } //
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = import nixpkgs { inherit system; };
+        lib = nixpkgs.lib;
+      in
+      {
+        packages = __PACKAGES__;
+      });
+}

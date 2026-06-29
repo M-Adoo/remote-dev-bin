@@ -1,0 +1,391 @@
+name: Publish Release Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "remote-dev branch, tag, or SHA to publish"
+        required: false
+        default: "main"
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TARGET: release
+  TARGET_BRANCH: main
+  TARGET_PROJECT: remote-dev-host-prod
+  REMOTE_DEV_CONFIRM_PROD: ${{ vars.REMOTE_DEV_CONFIRM_PROD }}
+  REGION: us-west1
+  SERVICE: remote-dev-host-service
+  IMAGE_REPOSITORY: remote-dev
+  IMAGE_NAME: host-service
+  CARGO_TERM_COLOR: always
+
+jobs:
+  resolve-source:
+    runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+      source_ref: ${{ steps.source.outputs.source_ref }}
+      source_version: ${{ steps.source.outputs.source_version }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Checkout publisher
+        uses: actions/checkout@v4
+
+      - name: Checkout remote-dev source
+        uses: actions/checkout@v4
+        with:
+          repository: M-Adoo/remote-dev
+          token: ${{ secrets.REMOTE_DEV_READ_TOKEN }}
+          ref: ${{ inputs.source_ref }}
+          path: remote-dev
+          persist-credentials: false
+
+      - name: Resolve clean source SHA
+        id: source
+        working-directory: remote-dev
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "remote-dev source checkout is dirty" >&2
+            exit 1
+          fi
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "source_ref=${{ inputs.source_ref }}" >> "$GITHUB_OUTPUT"
+          VERSION="$(awk -F'"' '/^version = / { print $2; exit }' Cargo.toml)"
+          if [ -z "$VERSION" ]; then
+            echo "failed to read workspace version from Cargo.toml" >&2
+            exit 1
+          fi
+          echo "source_version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve full release matrix
+        id: matrix
+        run: |
+          MATRIX="$(python3 scripts/publish.py matrix --target "$TARGET" --arch both)"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+      - name: Remove private source checkout
+        if: always()
+        run: rm -rf remote-dev
+
+  build-binary:
+    needs: resolve-source
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.resolve-source.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout publisher
+        uses: actions/checkout@v4
+
+      - name: Checkout remote-dev source
+        uses: actions/checkout@v4
+        with:
+          repository: M-Adoo/remote-dev
+          token: ${{ secrets.REMOTE_DEV_READ_TOKEN }}
+          ref: ${{ needs.resolve-source.outputs.source_sha }}
+          path: remote-dev
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.cargo_target }}
+
+      - name: Install musl compiler
+        if: contains(matrix.cargo_target, 'linux-musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Build binary
+        working-directory: remote-dev
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+        run: |
+          cargo build --release --target "${{ matrix.cargo_target }}" -p "${{ matrix.package }}" --bin "${{ matrix.binary }}"
+
+      - name: Package binary
+        run: |
+          mkdir -p out
+          python3 scripts/publish.py audit-binary \
+            --cargo-target "${{ matrix.cargo_target }}" \
+            --artifact "${{ matrix.artifact }}" \
+            --binary "remote-dev/target/${{ matrix.cargo_target }}/release/${{ matrix.binary }}"
+          tar -C "remote-dev/target/${{ matrix.cargo_target }}/release" -czf "out/${{ matrix.artifact }}.tar.gz" "${{ matrix.binary }}"
+          python3 scripts/publish.py write-binary-manifest \
+            --target "$TARGET" \
+            --kind "${{ matrix.kind }}" \
+            --source-ref "${{ needs.resolve-source.outputs.source_ref }}" \
+            --source-sha "${{ needs.resolve-source.outputs.source_sha }}" \
+            --system "${{ matrix.system }}" \
+            --arch "${{ matrix.arch }}" \
+            --cargo-target "${{ matrix.cargo_target }}" \
+            --package "${{ matrix.package }}" \
+            --binary "${{ matrix.binary }}" \
+            --artifact "${{ matrix.artifact }}" \
+            --tarball "out/${{ matrix.artifact }}.tar.gz" \
+            --output "out/${{ matrix.artifact }}.build.json"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: out/*
+          if-no-files-found: error
+
+      - name: Remove private source checkout
+        if: always()
+        run: rm -rf remote-dev
+
+  build-image:
+    needs: resolve-source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout publisher
+        uses: actions/checkout@v4
+
+      - name: Checkout remote-dev source
+        uses: actions/checkout@v4
+        with:
+          repository: M-Adoo/remote-dev
+          token: ${{ secrets.REMOTE_DEV_READ_TOKEN }}
+          ref: ${{ needs.resolve-source.outputs.source_sha }}
+          path: remote-dev
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build linux/amd64 image tar
+        env:
+          IMAGE_TAG: prod-${{ needs.resolve-source.outputs.source_sha }}
+        run: |
+          mkdir -p out
+          IMAGE="$REGION-docker.pkg.dev/$TARGET_PROJECT/$IMAGE_REPOSITORY/$IMAGE_NAME:${IMAGE_TAG:0:17}"
+          time_step() {
+            local label="$1"
+            shift
+            local start
+            local end
+            echo "::group::$label"
+            start="$(date +%s)"
+            "$@"
+            end="$(date +%s)"
+            echo "$label elapsed_seconds=$((end - start))"
+            echo "::endgroup::"
+          }
+
+          time_step "Docker build" /usr/bin/time -v docker buildx build \
+            --progress=plain \
+            --platform linux/amd64 \
+            -f remote-dev/Dockerfile.host-service \
+            -t "$IMAGE" \
+            --build-arg CARGO_PROFILE_RELEASE_OPT_LEVEL=3 \
+            --cache-from type=gha,scope=host-service-linux-amd64 \
+            --cache-to type=gha,mode=max,scope=host-service-linux-amd64 \
+            --output "type=docker,dest=$PWD/out/host-service-linux-amd64.tar" \
+            remote-dev
+          time_step "zstd compress" /usr/bin/time -v zstd -19 -f out/host-service-linux-amd64.tar -o out/host-service-linux-amd64.tar.zst
+          rm out/host-service-linux-amd64.tar
+          echo "$IMAGE" > out/host-service-image-ref.txt
+          time_step "Manifest write" python3 scripts/publish.py write-image-manifest \
+            --target "$TARGET" \
+            --source-ref "${{ needs.resolve-source.outputs.source_ref }}" \
+            --source-sha "${{ needs.resolve-source.outputs.source_sha }}" \
+            --tarball out/host-service-linux-amd64.tar.zst \
+            --output out/host-service-linux-amd64.build.json
+          artifact_start="$(date +%s)"
+          echo "::group::Artifact size"
+          du -h out/*
+          du -sh out
+          artifact_end="$(date +%s)"
+          echo "Artifact size elapsed_seconds=$((artifact_end - artifact_start))"
+          echo "::endgroup::"
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-service-linux-amd64
+          path: out/*
+          if-no-files-found: error
+
+      - name: Remove private source checkout
+        if: always()
+        run: rm -rf remote-dev
+
+  publish:
+    needs:
+      - resolve-source
+      - build-binary
+      - build-image
+    runs-on: ubuntu-latest
+    environment: prod
+    permissions:
+      contents: write
+      id-token: write
+      actions: write
+    steps:
+      - name: Confirm protected production target
+        run: |
+          if [ "$REMOTE_DEV_CONFIRM_PROD" != "$TARGET_PROJECT" ]; then
+            echo "REMOTE_DEV_CONFIRM_PROD must match $TARGET_PROJECT" >&2
+            exit 1
+          fi
+
+      - name: Checkout publisher
+        uses: actions/checkout@v4
+        with:
+          path: publisher
+
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          path: published
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded
+          merge-multiple: true
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-platforms = x86_64-linux aarch64-linux
+
+      - name: Set up QEMU for Nix bootstrap realization
+        uses: docker/setup-qemu-action@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - name: Install gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Artifact Registry auth
+        run: gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+
+      - name: Prepare Nix cache signing key
+        env:
+          NIX_CACHE_SIGNING_KEY: ${{ secrets.REMOTE_DEV_NIX_CACHE_SIGNING_KEY }}
+        run: |
+          if [ -z "$NIX_CACHE_SIGNING_KEY" ]; then
+            echo "REMOTE_DEV_NIX_CACHE_SIGNING_KEY secret is required" >&2
+            exit 1
+          fi
+          printf '%s' "$NIX_CACHE_SIGNING_KEY" > "$RUNNER_TEMP/nix-cache-signing-key"
+          chmod 600 "$RUNNER_TEMP/nix-cache-signing-key"
+
+      - name: Push image
+        id: image
+        run: |
+          IMAGE="$(cat downloaded/host-service-image-ref.txt)"
+          zstd -d -c downloaded/host-service-linux-amd64.tar.zst | docker load
+          docker push "$IMAGE"
+          DEPLOYED_IMAGE="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")"
+          DIGEST="${DEPLOYED_IMAGE#*@}"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "deployed_image=$DEPLOYED_IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Render release branch
+        run: |
+          python3 publisher/scripts/publish.py render-tree \
+            --target "$TARGET" \
+            --arch both \
+            --artifacts-dir downloaded \
+            --branch-dir published \
+            --source-ref "${{ needs.resolve-source.outputs.source_ref }}" \
+            --source-sha "${{ needs.resolve-source.outputs.source_sha }}" \
+            --version "${{ needs.resolve-source.outputs.source_version }}" \
+            --nix-cache-public-key "${{ vars.REMOTE_DEV_NIX_CACHE_PUBLIC_KEY }}" \
+            --nix-cache-signing-key-file "$RUNNER_TEMP/nix-cache-signing-key" \
+            --image "${{ steps.image.outputs.image }}" \
+            --image-digest "${{ steps.image.outputs.digest }}" \
+            --deployed-image "${{ steps.image.outputs.deployed_image }}" \
+            --workflow-run-id "$GITHUB_RUN_ID"
+
+      - name: Commit release branch
+        working-directory: published
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "release: publish ${{ needs.resolve-source.outputs.source_sha }}" || echo "No changes to commit"
+
+      - name: Resolve runtime artifact ref
+        id: artifact
+        working-directory: published
+        run: |
+          RUNTIME_ARTIFACT_SHA="$(git rev-parse HEAD)"
+          if ! [[ "$RUNTIME_ARTIFACT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "runtime artifact ref must resolve to a full commit SHA, got $RUNTIME_ARTIFACT_SHA" >&2
+            exit 1
+          fi
+          echo "sha=$RUNTIME_ARTIFACT_SHA" >> "$GITHUB_OUTPUT"
+          echo "ref=github:M-Adoo/remote-dev-bin/$RUNTIME_ARTIFACT_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Push release branch
+        working-directory: published
+        run: git push origin "$TARGET_BRANCH"
+
+      - name: Verify release branch head
+        working-directory: published
+        run: |
+          REMOTE_SHA="$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | awk '{print $1}')"
+          if [ "$REMOTE_SHA" != "${{ steps.artifact.outputs.sha }}" ]; then
+            echo "remote $TARGET_BRANCH HEAD $REMOTE_SHA did not match runtime artifact SHA ${{ steps.artifact.outputs.sha }}" >&2
+            exit 1
+          fi
+
+      - name: Verify remote Nix cache
+        run: |
+          python3 publisher/scripts/publish.py verify-remote-cache \
+            --target "$TARGET" \
+            --arch both \
+            --branch-dir published \
+            --artifact-sha "${{ steps.artifact.outputs.sha }}"
+
+      - name: Deploy Cloud Run
+        run: |
+          SERVICE_ACCOUNT="remote-dev-host-service@$TARGET_PROJECT.iam.gserviceaccount.com"
+          gcloud run deploy "$SERVICE" \
+            --image "${{ steps.image.outputs.deployed_image }}" \
+            --region "$REGION" \
+            --project "$TARGET_PROJECT" \
+            --service-account "$SERVICE_ACCOUNT" \
+            --set-env-vars "REMOTE_DEV_HOST_SERVICE_CONFIG=/app/config/host-service-prod.toml,REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF=${{ steps.artifact.outputs.ref }}" \
+            --cpu 1 \
+            --concurrency 5 \
+            --timeout 600 \
+            --max-instances 20 \
+            --no-allow-unauthenticated \
+            --quiet
+
+      - name: Cleanup Cloud Run revisions
+        run: |
+          python3 publisher/scripts/publish.py cleanup-cloud-run-revisions \
+            --project "$TARGET_PROJECT" \
+            --region "$REGION" \
+            --service "$SERVICE" \
+            --keep 20
+
+      - name: Delete successful run record
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run delete "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" || true
+
+      - name: Remove private files
+        if: always()
+        run: rm -rf downloaded "$RUNNER_TEMP/nix-cache-signing-key"
