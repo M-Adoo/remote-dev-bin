@@ -2925,7 +2925,6 @@ def assert_publish_workflow_order(
     gcloud_deploy = required_index(workflow, "gcloud run deploy", name)
     revision_cleanup_step = required_index(workflow, "- name: Cleanup Cloud Run revisions", name)
     revision_cleanup_command = required_index(workflow, "publish.py cleanup-cloud-run-revisions", name)
-    delete_run_record = required_index(workflow, "- name: Delete successful run record", name)
     pinned_env = "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF=${{ steps.artifact.outputs.ref }}"
     if not (
         push_image
@@ -2940,7 +2939,6 @@ def assert_publish_workflow_order(
         < gcloud_deploy
         < revision_cleanup_step
         < revision_cleanup_command
-        < delete_run_record
     ):
         raise Fail(
             f"{name} must push the image, render the target branch, resolve the final "
@@ -2966,7 +2964,11 @@ def assert_test_cleanup_workflow(cleanup: str) -> None:
         raise Fail("cleanup workflow must not retain latest 5 successful run records")
     if '"repos/$GITHUB_REPOSITORY/actions/runs"' in cleanup:
         raise Fail("cleanup workflow must not enumerate all repository workflow runs")
-    for workflow in ("publish-test.yml", "cleanup-host-service-test.yml"):
+    for workflow in (
+        "publish-test.yml",
+        "cleanup-host-service-test.yml",
+        "delete-successful-test-run.yml",
+    ):
         marker = f"repos/$GITHUB_REPOSITORY/actions/workflows/{workflow}/runs"
         if marker not in cleanup:
             raise Fail(f"cleanup workflow must clean old completed runs for {workflow}")
@@ -2975,18 +2977,38 @@ def assert_test_cleanup_workflow(cleanup: str) -> None:
         raise Fail("cleanup workflow must call cleanup-github-test-deployments")
     if "--environment test" not in deployment_step:
         raise Fail("cleanup workflow must only clean test deployments")
-    delete_run_record = workflow_step(cleanup, "- name: Delete successful run record", "cleanup")
-    if "gh run delete" not in delete_run_record:
-        raise Fail("cleanup workflow must delete its successful run record")
-    if "|| true" in delete_run_record:
-        raise Fail("cleanup workflow self-delete must fail loudly")
+    if 'gh run delete "$GITHUB_RUN_ID"' in cleanup:
+        raise Fail("cleanup workflow must not try to delete its active run")
+
+
+def assert_successful_test_run_delete_workflow(workflow: str) -> None:
+    if "workflow_run:" not in workflow:
+        raise Fail("successful test run deleter must use workflow_run")
+    for source in ("Publish Test Artifacts", "Cleanup HostService Test Artifacts"):
+        if source not in workflow:
+            raise Fail(f"successful test run deleter must watch {source}")
+    if "github.event.workflow_run.conclusion == 'success'" not in workflow:
+        raise Fail("successful test run deleter must only delete successful source runs")
+    if "github.event.workflow_run.id" not in workflow:
+        raise Fail("successful test run deleter must delete the completed source run id")
+    if 'gh run delete "$SOURCE_RUN_ID"' not in workflow:
+        raise Fail("successful test run deleter must delete SOURCE_RUN_ID")
+    if 'gh run delete "$GITHUB_RUN_ID"' in workflow:
+        raise Fail("successful test run deleter must not try to delete its active run")
+    if "|| true" in workflow:
+        raise Fail("successful test run deleter must fail loudly")
+    if "actions: write" not in workflow:
+        raise Fail("successful test run deleter must have actions: write permission")
 
 
 def assert_workflows(repo_root: Path) -> None:
     test = (repo_root / ".github/workflows/publish-test.yml").read_text()
     release = (repo_root / ".github/workflows/publish-release.yml").read_text()
     cleanup = (repo_root / ".github/workflows/cleanup-host-service-test.yml").read_text()
-    combined = "\n".join([test, release, cleanup])
+    delete_successful_test_run = (
+        repo_root / ".github/workflows/delete-successful-test-run.yml"
+    ).read_text()
+    combined = "\n".join([test, release, cleanup, delete_successful_test_run])
     if "pull_request" in combined or "pull_request_target" in combined:
         raise Fail("publish workflows must not run on pull_request events")
     for forbidden in ("cloud:", "project:"):
@@ -3005,12 +3027,10 @@ def assert_workflows(repo_root: Path) -> None:
     for line in combined.splitlines():
         if "gh run delete" in line and "--yes" in line:
             raise Fail("gh run delete does not accept --yes in the GitHub runner CLI")
-    test_delete_run_record = workflow_step(test, "- name: Delete successful run record", "publish-test")
-    if "gh run delete" not in test_delete_run_record:
-        raise Fail("publish-test must delete its successful run record")
-    if "|| true" in test_delete_run_record:
-        raise Fail("publish-test successful run record cleanup must fail loudly")
+    if 'gh run delete "$GITHUB_RUN_ID"' in test:
+        raise Fail("publish-test must not try to delete its active run")
     assert_test_cleanup_workflow(cleanup)
+    assert_successful_test_run_delete_workflow(delete_successful_test_run)
     assert_publish_workflow_order(
         "publish-test",
         test,

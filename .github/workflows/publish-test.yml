@@ -389,12 +389,6 @@ jobs:
             --service "$SERVICE" \
             --keep 20
 
-      - name: Delete successful run record
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run delete "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
-
       - name: Remove private files
         if: always()
         run: rm -rf downloaded "$RUNNER_TEMP/nix-cache-signing-key"

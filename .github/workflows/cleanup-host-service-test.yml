@@ -68,6 +68,16 @@ jobs:
             --jq '.workflow_runs[] | [.id, .created_at, (.conclusion // "unknown"), .name] | @tsv' \
             >> "$runs"
 
+          echo "Deleting completed Delete Successful Test Run Record workflow runs created before $cutoff"
+          gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/delete-successful-test-run.yml/runs" \
+            -f status=completed \
+            -f created="<$cutoff" \
+            -F per_page=100 \
+            --paginate \
+            --jq '.workflow_runs[] | [.id, .created_at, (.conclusion // "unknown"), .name] | @tsv' \
+            >> "$runs"
+
           sort -u -k1,1 "$runs" -o "$runs"
 
           count="$(wc -l < "$runs")"
@@ -87,9 +97,3 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --environment test \
             --max-days 7
-
-      - name: Delete successful run record
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run delete "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"

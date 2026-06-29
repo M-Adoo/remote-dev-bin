@@ -50,13 +50,13 @@ test, not an implicit `remote-dev/main`. It defaults to `aarch64` and can build
 Cloud Run from the image digest, and requires the protected `prod` environment
 plus `REMOTE_DEV_CONFIRM_PROD=remote-dev-host-prod`.
 
-`Publish Test Artifacts` deletes its own successful workflow run record after the
-test publish completes. Failed, cancelled, or timed-out test runs are kept for
-short-term diagnosis and removed by the scheduled cleanup after 7 days.
+`Delete Successful Test Run Record` removes successful `Publish Test Artifacts`
+and `Cleanup HostService Test Artifacts` workflow run records after those runs
+complete. Failed, cancelled, or timed-out test runs are kept for short-term
+diagnosis and removed by the scheduled cleanup after 7 days.
 
 `Cleanup HostService Test Artifacts` rewrites `host-service-test`, removes
-completed test workflow run records older than 7 days, removes `environment=test`
-GitHub deployments older than 7 days, and then deletes its own successful run
-record. Test Cloud Run revision cleanup keeps the latest 20 revisions while also
-protecting latest ready, latest created, traffic, and tagged revisions. `main`
-must not be force-pushed.
+completed test workflow run records older than 7 days, and removes
+`environment=test` GitHub deployments older than 7 days. Test Cloud Run revision
+cleanup keeps the latest 20 revisions while also protecting latest ready, latest
+created, traffic, and tagged revisions. `main` must not be force-pushed.
