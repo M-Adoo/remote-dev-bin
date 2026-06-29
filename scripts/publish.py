@@ -81,6 +81,7 @@ CLOUD_RUN_RFC3339_RE = re.compile(
 CLOUD_RUN_LATEST_READY_FIELDS = ("latestReadyRevisionName", "latestReadyRevision")
 CLOUD_RUN_LATEST_CREATED_FIELDS = ("latestCreatedRevisionName", "latestCreatedRevision")
 CLOUD_RUN_TRAFFIC_REVISION_FIELDS = ("revisionName", "revision")
+GITHUB_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 GIT_CORE_COMMANDS = (
     "git",
@@ -351,6 +352,25 @@ class CloudRunRevisionCleanupPlan:
     @property
     def retained_after_cleanup(self) -> int:
         return self.total_revisions - len(self.delete_revisions)
+
+
+@dataclass(frozen=True)
+class GitHubDeployment:
+    deployment_id: int
+    environment: str
+    created_at: dt.datetime
+    created_at_raw: str
+    ref: str | None
+    sha: str | None
+
+
+@dataclass(frozen=True)
+class GitHubDeploymentCleanupPlan:
+    repo: str
+    environment: str
+    cutoff: dt.datetime
+    total_deployments: int
+    delete_deployments: tuple[GitHubDeployment, ...]
 
 
 def utc_now() -> str:
@@ -2405,27 +2425,14 @@ def require_non_empty_arg(value: str, name: str) -> str:
     return value.strip()
 
 
-def decode_gcloud_json(text: str, context: str) -> Any:
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as error:
-        raise Fail(f"{context}: gcloud did not return JSON: {error}") from error
+def require_github_repo(value: str, name: str) -> str:
+    repo = require_non_empty_arg(value, name)
+    if GITHUB_REPO_RE.fullmatch(repo) is None:
+        raise Fail(f"{name} must be in owner/repo form")
+    return repo
 
 
-def read_gcloud_json(args: list[str], context: str) -> Any:
-    return decode_gcloud_json(run(args, capture=True), context)
-
-
-def cloud_run_revision_name_from_ref(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    trimmed = value.strip().rstrip("/")
-    if not trimmed:
-        return None
-    return trimmed.rsplit("/", 1)[-1]
-
-
-def parse_cloud_run_rfc3339(value: Any, context: str) -> dt.datetime:
+def parse_rfc3339_timestamp(value: Any, context: str) -> dt.datetime:
     if not isinstance(value, str) or not value:
         raise Fail(f"{context}: missing creation timestamp")
     match = CLOUD_RUN_RFC3339_RE.match(value)
@@ -2444,6 +2451,41 @@ def parse_cloud_run_rfc3339(value: Any, context: str) -> dt.datetime:
     if parsed.tzinfo is None:
         raise Fail(f"{context}: timestamp must include a timezone")
     return parsed.astimezone(dt.UTC)
+
+
+def decode_gcloud_json(text: str, context: str) -> Any:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as error:
+        raise Fail(f"{context}: gcloud did not return JSON: {error}") from error
+
+
+def read_gcloud_json(args: list[str], context: str) -> Any:
+    return decode_gcloud_json(run(args, capture=True), context)
+
+
+def decode_gh_json(text: str, context: str) -> Any:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as error:
+        raise Fail(f"{context}: GitHub API did not return JSON: {error}") from error
+
+
+def read_gh_json(args: list[str], context: str) -> Any:
+    return decode_gh_json(run(args, capture=True), context)
+
+
+def cloud_run_revision_name_from_ref(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    trimmed = value.strip().rstrip("/")
+    if not trimmed:
+        return None
+    return trimmed.rsplit("/", 1)[-1]
+
+
+def parse_cloud_run_rfc3339(value: Any, context: str) -> dt.datetime:
+    return parse_rfc3339_timestamp(value, context)
 
 
 def parse_cloud_run_revisions(value: Any) -> tuple[CloudRunRevision, ...]:
@@ -2684,6 +2726,145 @@ def cmd_cleanup_cloud_run_revisions(args: argparse.Namespace) -> None:
     print(f"deleted_revisions={len(plan.delete_revisions)}")
 
 
+def flatten_github_paginated_items(value: Any, context: str) -> list[Any]:
+    if not isinstance(value, list):
+        raise Fail(f"{context} JSON must be a list")
+    if all(isinstance(page, list) for page in value):
+        return [item for page in value for item in page]
+    return value
+
+
+def parse_github_deployments(value: Any) -> tuple[GitHubDeployment, ...]:
+    deployments: list[GitHubDeployment] = []
+    seen: set[int] = set()
+    for index, raw in enumerate(flatten_github_paginated_items(value, "GitHub deployments API")):
+        context = f"GitHub deployment[{index}]"
+        if not isinstance(raw, dict):
+            raise Fail(f"{context}: must be an object")
+        deployment_id = raw.get("id")
+        if not isinstance(deployment_id, int) or isinstance(deployment_id, bool):
+            raise Fail(f"{context}: missing numeric id")
+        if deployment_id in seen:
+            raise Fail(f"duplicate GitHub deployment id {deployment_id}")
+        seen.add(deployment_id)
+        environment = raw.get("environment")
+        if not isinstance(environment, str) or not environment:
+            raise Fail(f"{context}: missing environment")
+        created_at_raw = raw.get("created_at")
+        created_at = parse_rfc3339_timestamp(created_at_raw, context)
+        ref = raw.get("ref")
+        sha = raw.get("sha")
+        deployments.append(
+            GitHubDeployment(
+                deployment_id=deployment_id,
+                environment=environment,
+                created_at=created_at,
+                created_at_raw=created_at_raw,
+                ref=ref if isinstance(ref, str) and ref else None,
+                sha=sha if isinstance(sha, str) and sha else None,
+            )
+        )
+    return tuple(sorted(deployments, key=lambda item: (item.created_at, item.deployment_id)))
+
+
+def select_github_test_deployment_cleanup(
+    repo: str,
+    environment: str,
+    raw_deployments: Any,
+    cutoff: dt.datetime,
+) -> GitHubDeploymentCleanupPlan:
+    if environment != "test":
+        raise Fail("GitHub deployment cleanup is only allowed for environment=test")
+    if cutoff.tzinfo is None:
+        raise Fail("GitHub deployment cleanup cutoff must include a timezone")
+    deployments = parse_github_deployments(raw_deployments)
+    delete_deployments = tuple(
+        deployment
+        for deployment in deployments
+        if deployment.environment == environment and deployment.created_at < cutoff.astimezone(dt.UTC)
+    )
+    return GitHubDeploymentCleanupPlan(
+        repo=repo,
+        environment=environment,
+        cutoff=cutoff.astimezone(dt.UTC),
+        total_deployments=len(deployments),
+        delete_deployments=delete_deployments,
+    )
+
+
+def print_github_deployment_cleanup_plan(plan: GitHubDeploymentCleanupPlan) -> None:
+    print(
+        "GitHub deployment cleanup plan "
+        f"repo={plan.repo} environment={plan.environment} "
+        f"cutoff={plan.cutoff.isoformat().replace('+00:00', 'Z')}"
+    )
+    print(f"total_deployments={plan.total_deployments}")
+    print(f"delete_deployments={len(plan.delete_deployments)}")
+    if plan.delete_deployments:
+        for deployment in plan.delete_deployments:
+            suffix = ""
+            if deployment.sha is not None:
+                suffix += f" sha={deployment.sha}"
+            if deployment.ref is not None:
+                suffix += f" ref={deployment.ref}"
+            print(
+                f"  - id={deployment.deployment_id} "
+                f"created_at={deployment.created_at_raw}{suffix}"
+            )
+    else:
+        print("  - none")
+
+
+def cmd_cleanup_github_test_deployments(args: argparse.Namespace) -> None:
+    repo = require_github_repo(args.repo, "--repo")
+    environment = require_non_empty_arg(args.environment, "--environment")
+    if args.max_days <= 0:
+        raise Fail("--max-days must be greater than 0")
+    cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=args.max_days)
+    deployments_json = read_gh_json(
+        [
+            "gh",
+            "api",
+            "--method",
+            "GET",
+            f"repos/{repo}/deployments",
+            "-f",
+            f"environment={environment}",
+            "-F",
+            "per_page=100",
+            "--paginate",
+            "--slurp",
+        ],
+        "GitHub deployments list",
+    )
+    plan = select_github_test_deployment_cleanup(repo, environment, deployments_json, cutoff)
+    print_github_deployment_cleanup_plan(plan)
+    for deployment in plan.delete_deployments:
+        run(
+            [
+                "gh",
+                "api",
+                "--method",
+                "POST",
+                f"repos/{repo}/deployments/{deployment.deployment_id}/statuses",
+                "-f",
+                "state=inactive",
+                "-f",
+                "description=retention cleanup",
+            ]
+        )
+        run(
+            [
+                "gh",
+                "api",
+                "--method",
+                "DELETE",
+                f"repos/{repo}/deployments/{deployment.deployment_id}",
+            ]
+        )
+    print(f"deleted_deployments={len(plan.delete_deployments)}")
+
+
 def fake_artifact(root: Path, manifest: dict[str, str]) -> None:
     name = manifest["artifact"]
     tarball = root / f"{name}.tar.gz"
@@ -2715,6 +2896,14 @@ def required_index(text: str, marker: str, context: str) -> int:
     if index < 0:
         raise Fail(f"{context} is missing {marker!r}")
     return index
+
+
+def workflow_step(text: str, step_name: str, context: str) -> str:
+    start = required_index(text, step_name, context)
+    end = text.find("\n      - name:", start + 1)
+    if end < 0:
+        end = len(text)
+    return text[start:end]
 
 
 def assert_publish_workflow_order(
@@ -2770,6 +2959,29 @@ def assert_publish_workflow_order(
         raise Fail(f"{name} must not deploy Cloud Run before the target branch push")
 
 
+def assert_test_cleanup_workflow(cleanup: str) -> None:
+    if "deployments: write" not in cleanup:
+        raise Fail("cleanup workflow must have deployments: write permission")
+    if "old_success_runs" in cleanup or "latest 5 successful" in cleanup or "-f status=success" in cleanup:
+        raise Fail("cleanup workflow must not retain latest 5 successful run records")
+    if '"repos/$GITHUB_REPOSITORY/actions/runs"' in cleanup:
+        raise Fail("cleanup workflow must not enumerate all repository workflow runs")
+    for workflow in ("publish-test.yml", "cleanup-host-service-test.yml"):
+        marker = f"repos/$GITHUB_REPOSITORY/actions/workflows/{workflow}/runs"
+        if marker not in cleanup:
+            raise Fail(f"cleanup workflow must clean old completed runs for {workflow}")
+    deployment_step = workflow_step(cleanup, "- name: Delete old test deployments", "cleanup")
+    if "cleanup-github-test-deployments" not in deployment_step:
+        raise Fail("cleanup workflow must call cleanup-github-test-deployments")
+    if "--environment test" not in deployment_step:
+        raise Fail("cleanup workflow must only clean test deployments")
+    delete_run_record = workflow_step(cleanup, "- name: Delete successful run record", "cleanup")
+    if "gh run delete" not in delete_run_record:
+        raise Fail("cleanup workflow must delete its successful run record")
+    if "|| true" in delete_run_record:
+        raise Fail("cleanup workflow self-delete must fail loudly")
+
+
 def assert_workflows(repo_root: Path) -> None:
     test = (repo_root / ".github/workflows/publish-test.yml").read_text()
     release = (repo_root / ".github/workflows/publish-release.yml").read_text()
@@ -2793,6 +3005,12 @@ def assert_workflows(repo_root: Path) -> None:
     for line in combined.splitlines():
         if "gh run delete" in line and "--yes" in line:
             raise Fail("gh run delete does not accept --yes in the GitHub runner CLI")
+    test_delete_run_record = workflow_step(test, "- name: Delete successful run record", "publish-test")
+    if "gh run delete" not in test_delete_run_record:
+        raise Fail("publish-test must delete its successful run record")
+    if "|| true" in test_delete_run_record:
+        raise Fail("publish-test successful run record cleanup must fail loudly")
+    assert_test_cleanup_workflow(cleanup)
     assert_publish_workflow_order(
         "publish-test",
         test,
@@ -2936,6 +3154,88 @@ def assert_cloud_run_revision_cleanup_model() -> None:
             raise
     else:
         raise Fail("Cloud Run revision cleanup must reject non-positive keep counts")
+
+
+def fake_github_deployment(
+    deployment_id: int,
+    environment: str,
+    created_at: str,
+    ref: str = "main",
+    sha: str = "0123456789abcdef0123456789abcdef01234567",
+) -> dict[str, Any]:
+    return {
+        "id": deployment_id,
+        "environment": environment,
+        "created_at": created_at,
+        "ref": ref,
+        "sha": sha,
+    }
+
+
+def assert_github_test_deployment_cleanup_model() -> None:
+    cutoff = dt.datetime(2026, 1, 8, tzinfo=dt.UTC)
+    raw = [
+        fake_github_deployment(1, "test", "2026-01-01T00:00:00Z"),
+        fake_github_deployment(2, "test", "2026-01-09T00:00:00Z"),
+        fake_github_deployment(3, "prod", "2026-01-01T00:00:00Z"),
+    ]
+    plan = select_github_test_deployment_cleanup(
+        "M-Adoo/remote-dev-bin",
+        "test",
+        raw,
+        cutoff,
+    )
+    if [deployment.deployment_id for deployment in plan.delete_deployments] != [1]:
+        raise Fail("GitHub deployment cleanup must only delete old test deployments")
+
+    paginated_plan = select_github_test_deployment_cleanup(
+        "M-Adoo/remote-dev-bin",
+        "test",
+        [raw[:2], raw[2:]],
+        cutoff,
+    )
+    if [deployment.deployment_id for deployment in paginated_plan.delete_deployments] != [1]:
+        raise Fail("GitHub deployment cleanup must accept paginated GitHub API output")
+
+    try:
+        select_github_test_deployment_cleanup(
+            "M-Adoo/remote-dev-bin",
+            "prod",
+            raw,
+            cutoff,
+        )
+    except Fail as error:
+        if "environment=test" not in str(error):
+            raise
+    else:
+        raise Fail("GitHub deployment cleanup must refuse non-test environments")
+
+    for bad_deployments, expected in [
+        ("not-a-list", "must be a list"),
+        ([{"environment": "test", "created_at": "2026-01-01T00:00:00Z"}], "missing numeric id"),
+        ([{"id": 1, "created_at": "2026-01-01T00:00:00Z"}], "missing environment"),
+        ([{"id": 1, "environment": "test"}], "missing creation timestamp"),
+    ]:
+        try:
+            select_github_test_deployment_cleanup(
+                "M-Adoo/remote-dev-bin",
+                "test",
+                bad_deployments,
+                cutoff,
+            )
+        except Fail as error:
+            if expected not in str(error):
+                raise
+        else:
+            raise Fail(f"GitHub deployment cleanup must reject deployments with {expected}")
+
+    try:
+        decode_gh_json("not-json", "test gh")
+    except Fail as error:
+        if "GitHub API did not return JSON" not in str(error):
+            raise
+    else:
+        raise Fail("GitHub deployment cleanup must reject non-JSON GitHub API output")
 
 
 def cmd_self_test(_: argparse.Namespace) -> None:
@@ -3187,6 +3487,7 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         raise Fail("unexpected object-shaped nix path-info parsing")
     assert_workflows(repo_root)
     assert_cloud_run_revision_cleanup_model()
+    assert_github_test_deployment_cleanup_model()
     assert_aws_ami_pin_metadata(repo_root)
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -3554,6 +3855,12 @@ def parser() -> argparse.ArgumentParser:
     cr.add_argument("--service", required=True)
     cr.add_argument("--keep", type=int, default=20)
     cr.set_defaults(func=cmd_cleanup_cloud_run_revisions)
+
+    gd = sub.add_parser("cleanup-github-test-deployments")
+    gd.add_argument("--repo", required=True)
+    gd.add_argument("--environment", required=True)
+    gd.add_argument("--max-days", type=int, default=7)
+    gd.set_defaults(func=cmd_cleanup_github_test_deployments)
 
     s = sub.add_parser("self-test")
     s.set_defaults(func=cmd_self_test)
