@@ -146,7 +146,6 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
         "priority": 20,
         "labels": [
             "preconnect",
-            "workspace-prefill",
             "default-shell",
             "store-prefill",
         ],
@@ -156,7 +155,7 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
     {
         "id": "nix-source-baseline",
         "priority": 30,
-        "labels": ["preconnect", "workspace-prefill", "nix-source", "store-prefill"],
+        "labels": ["preconnect", "nix-source", "store-prefill"],
         "inputs": ["nixSourceBaseline"],
         "commands": [],
     },
@@ -3714,15 +3713,12 @@ def cmd_self_test(_: argparse.Namespace) -> None:
                 for group in sorted(catalog["groups"], key=lambda item: (item["priority"], item["id"]))
                 if label in group["labels"]
             ]
-            for label in ["source-bootstrap", "workspace-prefill", "shell-baseline", "preconnect"]
+            for label in ["source-bootstrap", "shell-baseline", "preconnect"]
         }
         if groups_by_label["source-bootstrap"] != ["git-core"]:
             raise Fail(f"source-bootstrap lane mismatch: {groups_by_label['source-bootstrap']}")
-        if groups_by_label["workspace-prefill"] != [
-            "default-dev-shell-prefill",
-            "nix-source-baseline",
-        ]:
-            raise Fail(f"workspace-prefill lane mismatch: {groups_by_label['workspace-prefill']}")
+        if any("workspace-prefill" in group["labels"] for group in catalog["groups"]):
+            raise Fail("host groups catalog retained workspace-prefill label")
         if groups_by_label["shell-baseline"] != ["host-base-tools", "shell-startup"]:
             raise Fail(f"shell-baseline lane mismatch: {groups_by_label['shell-baseline']}")
         if groups_by_label["preconnect"] != [
