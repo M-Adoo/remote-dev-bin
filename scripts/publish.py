@@ -113,8 +113,8 @@ HOST_BASE_COMMANDS = (
 HOST_GROUPS: tuple[dict[str, Any], ...] = (
     {
         "id": "host-base-tools",
-        "priority": 0,
-        "labels": ["host-base", "host-tools", "host-default"],
+        "priority": 10,
+        "labels": ["preconnect", "shell-baseline", "host-base", "host-tools"],
         "inputs": [
             "pkgs.bash",
             "pkgs.coreutils",
@@ -129,40 +129,41 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "git-core",
-        "priority": 10,
-        "labels": ["git", "workspace-sync", "bootstrap"],
+        "priority": 0,
+        "labels": ["source-bootstrap", "workspace-sync", "git"],
         "inputs": ["pkgs.gitMinimal"],
         "commands": list(GIT_CORE_COMMANDS),
     },
     {
         "id": "mosh-transport",
-        "priority": 5,
-        "labels": ["terminal", "mosh", "transport"],
+        "priority": 40,
+        "labels": ["preconnect", "terminal", "mosh", "transport"],
         "inputs": ["pkgs.mosh"],
         "commands": ["mosh-server"],
     },
     {
         "id": "default-dev-shell-prefill",
-        "priority": 10,
+        "priority": 20,
         "labels": [
+            "preconnect",
+            "workspace-prefill",
             "default-shell",
             "store-prefill",
-            "workspace-eager-prefill",
         ],
         "inputs": ["pkgs.bashInteractive", "pkgs.stdenv.cc.cc.lib"],
         "commands": [],
     },
     {
         "id": "nix-source-baseline",
-        "priority": 20,
-        "labels": ["nix", "source", "store-prefill"],
+        "priority": 30,
+        "labels": ["preconnect", "workspace-prefill", "nix-source", "store-prefill"],
         "inputs": ["nixSourceBaseline"],
         "commands": [],
     },
     {
         "id": "shell-startup",
-        "priority": 30,
-        "labels": ["shell-baseline", "shell", "interactive", "startup"],
+        "priority": 50,
+        "labels": ["preconnect", "shell-baseline", "shell", "interactive", "startup"],
         "inputs": ["pkgs.zsh", "pkgs.starship"],
         "commands": ["zsh", "starship"],
     },
@@ -190,7 +191,7 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
     {
         "id": "build-baseline",
         "priority": 60,
-        "labels": ["build", "tooling", "store-prefill", "workspace-eager-prefill"],
+        "labels": ["build", "tooling", "background"],
         "inputs": ["pkgs.gnumake", "pkgs.pkg-config"],
         "commands": ["pkg-config", "make"],
     },
@@ -3705,8 +3706,33 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         host_default_groups = sorted(
             group_id for group_id, group in groups.items() if "host-default" in group["labels"]
         )
-        if host_default_groups != ["host-base-tools"]:
-            raise Fail(f"host-default warmup must only select host-base-tools, got {host_default_groups}")
+        if host_default_groups:
+            raise Fail(f"host-default label must not be rendered, got {host_default_groups}")
+        groups_by_label = {
+            label: [
+                group["id"]
+                for group in sorted(catalog["groups"], key=lambda item: (item["priority"], item["id"]))
+                if label in group["labels"]
+            ]
+            for label in ["source-bootstrap", "workspace-prefill", "shell-baseline", "preconnect"]
+        }
+        if groups_by_label["source-bootstrap"] != ["git-core"]:
+            raise Fail(f"source-bootstrap lane mismatch: {groups_by_label['source-bootstrap']}")
+        if groups_by_label["workspace-prefill"] != [
+            "default-dev-shell-prefill",
+            "nix-source-baseline",
+        ]:
+            raise Fail(f"workspace-prefill lane mismatch: {groups_by_label['workspace-prefill']}")
+        if groups_by_label["shell-baseline"] != ["host-base-tools", "shell-startup"]:
+            raise Fail(f"shell-baseline lane mismatch: {groups_by_label['shell-baseline']}")
+        if groups_by_label["preconnect"] != [
+            "host-base-tools",
+            "default-dev-shell-prefill",
+            "nix-source-baseline",
+            "mosh-transport",
+            "shell-startup",
+        ]:
+            raise Fail(f"preconnect lane mismatch: {groups_by_label['preconnect']}")
         git_commands = [shim["command"] for shim in groups["git-core"]["commands"]]
         if git_commands != list(GIT_CORE_COMMANDS):
             raise Fail("git-core must expose the full gitMinimal command surface")
