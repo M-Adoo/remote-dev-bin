@@ -1,0 +1,4 @@
+StoreDir: /nix/store
+WantMassQuery: 1
+Priority: 40
+TrustedPublicKey: remote-dev-bin:M58YnePxJv1ZwqFIe2L1rSCmTM+kUGa5wac0gQ1Xrl4=

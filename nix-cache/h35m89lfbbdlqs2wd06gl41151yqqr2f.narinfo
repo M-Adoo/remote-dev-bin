@@ -1,0 +1,10 @@
+StorePath: /nix/store/h35m89lfbbdlqs2wd06gl41151yqqr2f-remote-dev-host-group-git-core-aarch64-linux
+URL: nar/15ladsyp2r9qgcxg2nzvnws10pvhfqdp3j44mvn0422vg1msgv8h.nar.xz
+Compression: xz
+FileHash: sha256:15ladsyp2r9qgcxg2nzvnws10pvhfqdp3j44mvn0422vg1msgv8h
+FileSize: 420
+NarHash: sha256:01sr7g90x05y44vrj40q3yqf0cfssjfacfq7b4hxr731pzhnspi4
+NarSize: 3320
+References: f7z3w5awhphs5pgmmjlrn5g7ck036sqb-git-minimal-2.51.2
+Deriver: qfvhx9gfbm6ar465ibkkb4yfbhzrhg31-remote-dev-host-group-git-core-aarch64-linux.drv
+Sig: remote-dev-bin:QNOJkTNYBmLGTYKqjF5oqSsljCT0DZqjO8d4wPELuBC1pw2CPf/bGLiNVBWGPVgwOICqTPAT6kNhNo2/T28WAw==

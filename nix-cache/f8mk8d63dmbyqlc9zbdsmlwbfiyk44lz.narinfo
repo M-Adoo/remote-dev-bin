@@ -1,0 +1,10 @@
+StorePath: /nix/store/f8mk8d63dmbyqlc9zbdsmlwbfiyk44lz-remote-dev-agent-runtime
+URL: nar/0ypgrac7v1p16hz0mffw8jlv0ryqdlmbvyazg6l4m3ii7wdk5b4k.nar.xz
+Compression: xz
+FileHash: sha256:0ypgrac7v1p16hz0mffw8jlv0ryqdlmbvyazg6l4m3ii7wdk5b4k
+FileSize: 340
+NarHash: sha256:1dzxcayiyq0bjgh1chg6sacjjpfzjz3al6dr484fpa7pfwyiqjqv
+NarSize: 1008
+References: 5bml4f4lgqjsqsx1ivz2qksx8rdswxrn-remote-dev-host-service-test.20260701T160745Z-g707922b62853-remote-dev-bin-test-707922b62853-1782921788 b9czlzpm57h1ilw75sdnm4swg7x0da2j-remote-dev-runtime-host-service-test.20260701T160745Z-g707922b62853-remote-dev-bin-test-707922b62853-1782921788
+Deriver: 08jism86vw7m59yj75vifn8wqzmxk721-remote-dev-agent-runtime.drv
+Sig: remote-dev-bin:S1rp8L22xNQ5ANbzW32B3Jz1+LfxUGd5js9U5szl5xiXHuw/Q+ObQ7k07E7sX1G/JVZKFJgBWVSMcVzQ7qmlCg==

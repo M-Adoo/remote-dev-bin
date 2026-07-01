@@ -1,0 +1,47 @@
+{
+  "agent_runtime_attr": "packages.aarch64-linux.remote-dev-agent-runtime",
+  "agent_runtime_store_path": "/nix/store/f8mk8d63dmbyqlc9zbdsmlwbfiyk44lz-remote-dev-agent-runtime",
+  "paths": {
+    "/nix/store/5bml4f4lgqjsqsx1ivz2qksx8rdswxrn-remote-dev-host-service-test.20260701T160745Z-g707922b62853-remote-dev-bin-test-707922b62853-1782921788": {
+      "ca": null,
+      "deriver": "/nix/store/i51jw0b1wjd8h0c8vmbnzw028b12w8g5-remote-dev-host-service-test.20260701T160745Z-g707922b62853-remote-dev-bin-test-707922b62853-1782921788.drv",
+      "narHash": "sha256-FKCVEqbY+zf2sis0aN2PWjRTBN5Sc7EQT55Swfxw9c8=",
+      "narSize": 17213816,
+      "references": [],
+      "registrationTime": 1782922079,
+      "signatures": [],
+      "storeDir": "/nix/store",
+      "ultimate": true,
+      "version": 1
+    },
+    "/nix/store/b9czlzpm57h1ilw75sdnm4swg7x0da2j-remote-dev-runtime-host-service-test.20260701T160745Z-g707922b62853-remote-dev-bin-test-707922b62853-1782921788": {
+      "ca": null,
+      "deriver": "/nix/store/wflyvmgqf7w6ix7hs82xviim16kpzlbn-remote-dev-runtime-host-service-test.20260701T160745Z-g707922b62853-remote-dev-bin-test-707922b62853-1782921788.drv",
+      "narHash": "sha256-vAB/9vhLBvwJ6YsglrJ8lrJRHORdD0s7PHDZuaYvYEY=",
+      "narSize": 2024128,
+      "references": [],
+      "registrationTime": 1782922078,
+      "signatures": [],
+      "storeDir": "/nix/store",
+      "ultimate": true,
+      "version": 1
+    },
+    "/nix/store/f8mk8d63dmbyqlc9zbdsmlwbfiyk44lz-remote-dev-agent-runtime": {
+      "ca": null,
+      "deriver": "/nix/store/08jism86vw7m59yj75vifn8wqzmxk721-remote-dev-agent-runtime.drv",
+      "narHash": "sha256-G0scPXf3qOsIIrkZqsaX310pmdLmQRbgkwtgH71i/bc=",
+      "narSize": 1008,
+      "references": [
+        "/nix/store/5bml4f4lgqjsqsx1ivz2qksx8rdswxrn-remote-dev-host-service-test.20260701T160745Z-g707922b62853-remote-dev-bin-test-707922b62853-1782921788",
+        "/nix/store/b9czlzpm57h1ilw75sdnm4swg7x0da2j-remote-dev-runtime-host-service-test.20260701T160745Z-g707922b62853-remote-dev-bin-test-707922b62853-1782921788"
+      ],
+      "registrationTime": 1782922080,
+      "signatures": [],
+      "storeDir": "/nix/store",
+      "ultimate": true,
+      "version": 1
+    }
+  },
+  "schema_version": 1,
+  "system": "aarch64-linux"
+}

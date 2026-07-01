@@ -1,0 +1,10 @@
+StorePath: /nix/store/mkk3symq52y93b464vwamdf028rv30wq-remote-dev-host-group-mosh-transport-aarch64-linux
+URL: nar/0s2ry49g9sg2h433z61iak5nynzjld5av1m48p07pw4dg956i213.nar.xz
+Compression: xz
+FileHash: sha256:0s2ry49g9sg2h433z61iak5nynzjld5av1m48p07pw4dg956i213
+FileSize: 276
+NarHash: sha256:1b9fhgvc67ar6awxvjyg85wpxnmzw9d26y5lc9l2sild8qx247yc
+NarSize: 1120
+References: gh2b84631aixlncv8dzc22fpsprna3np-mosh-1.4.0
+Deriver: 8axqfr009gl0x339cl0g08v9k37i73ds-remote-dev-host-group-mosh-transport-aarch64-linux.drv
+Sig: remote-dev-bin:aG0Fq43VSlEvItfDoAScPJr/LWrwqscQcr5kLIHj3O9+8Yij6ExsK5r1sEM8pkgl94ABxdtnModCfKt+f+mHBw==

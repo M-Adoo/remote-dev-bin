@@ -1,0 +1,10 @@
+StorePath: /nix/store/vwn28xmbpidq5agcy0vapiyjr2nba5sv-remote-dev-host-group-c-toolchain-gcc-aarch64-linux
+URL: nar/1y2k0cq5bjjfppzn4xh6l65r6s66cp62i6fk876dfs8gdnsk501i.nar.xz
+Compression: xz
+FileHash: sha256:1y2k0cq5bjjfppzn4xh6l65r6s66cp62i6fk876dfs8gdnsk501i
+FileSize: 292
+NarHash: sha256:188ndffpgh24haqygczvgd6pcx31wpd0m2d15gl0xrj46hlyyxm4
+NarSize: 1376
+References: c461wmk9d7r3vxxl10av8mmy2hndh1cy-gcc-wrapper-14.3.0
+Deriver: qsalphhhkpwrdp8wnma9rjk06lnz9186-remote-dev-host-group-c-toolchain-gcc-aarch64-linux.drv
+Sig: remote-dev-bin:J5WH0iO6Gm0zej2oo5abWg0MNWEq4A+awqp5Vpu4gbeClMyepzy8V5XGdzfH2GNS44c34p2KLHVI6E8CAG5DBw==

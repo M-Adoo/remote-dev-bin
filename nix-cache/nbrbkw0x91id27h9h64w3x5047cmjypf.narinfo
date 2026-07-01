@@ -1,0 +1,10 @@
+StorePath: /nix/store/nbrbkw0x91id27h9h64w3x5047cmjypf-remote-dev-host-group-shell-startup-aarch64-linux
+URL: nar/0k0q4fgi9qhr82g8ymrzw94xkbxz8mxs5n4x1q5yd0068r0xkn2k.nar.xz
+Compression: xz
+FileHash: sha256:0k0q4fgi9qhr82g8ymrzw94xkbxz8mxs5n4x1q5yd0068r0xkn2k
+FileSize: 332
+NarHash: sha256:06v56rdfpjfvdnw4zyvgp4ha6zz92v8lpmzsfhacclxnadxvslj4
+NarSize: 1608
+References: 6j0wr7djlsxhm4campmdp6qkhdp97nfn-starship-1.24.2 xnyjq48kxln8zzdpn1ql2s3y9xgyhs9d-zsh-5.9
+Deriver: zg9v3wr1h179mkpkf149wadrxbhs4wws-remote-dev-host-group-shell-startup-aarch64-linux.drv
+Sig: remote-dev-bin:0KoyqNLIQRHXLtILnSUSKKW9LX2v6AHw2jg3y5B1fuE6e+EevYou3W+G8JNHE4QibLLnMduME6VimpPACRBqBQ==

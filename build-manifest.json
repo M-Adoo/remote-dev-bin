@@ -1,0 +1,98 @@
+{
+  "artifacts": [
+    {
+      "arch": "aarch64",
+      "artifact": "remote-dev-aarch64-linux",
+      "binary": "remote-dev",
+      "cargo_target": "aarch64-unknown-linux-musl",
+      "generated_at": "2026-07-01T16:06:33Z",
+      "kind": "remote-dev",
+      "package": "remote-dev",
+      "schema_version": 1,
+      "sha256": "96efaa79caf44d79f048337c52638451c3eaf5155fc185d85619b9babb83d766",
+      "source_ref": "remote-dev-bin-test/707922b62853-1782921788",
+      "source_repo": "M-Adoo/remote-dev",
+      "source_sha": "707922b628537c1832ecd15a3e806ee2d7dec518",
+      "system": "aarch64-linux",
+      "tarball": "artifacts/remote-dev-aarch64-linux.tar.gz",
+      "target": "host-service-test"
+    },
+    {
+      "arch": "aarch64",
+      "artifact": "remote-dev-runtime-aarch64-linux",
+      "binary": "remote-dev-runtime",
+      "cargo_target": "aarch64-unknown-linux-musl",
+      "generated_at": "2026-07-01T16:05:32Z",
+      "kind": "runtime",
+      "package": "remote-dev",
+      "schema_version": 1,
+      "sha256": "b293a71c66df332f4d131e57e7072ee8c653f148c4a8e2a70e7771eaec6e9755",
+      "source_ref": "remote-dev-bin-test/707922b62853-1782921788",
+      "source_repo": "M-Adoo/remote-dev",
+      "source_sha": "707922b628537c1832ecd15a3e806ee2d7dec518",
+      "system": "aarch64-linux",
+      "tarball": "artifacts/remote-dev-runtime-aarch64-linux.tar.gz",
+      "target": "host-service-test"
+    }
+  ],
+  "closure_audit": [
+    {
+      "cache_compressed_bytes": 36245096,
+      "closure_paths": 3,
+      "marker_presence": {
+        "amazon-ssm-agent": false,
+        "git-doc": false,
+        "nix-manual": false,
+        "nixos-manual-html": false
+      },
+      "path_names": [
+        "5bml4f4lgqjsqsx1ivz2qksx8rdswxrn-remote-dev-host-service-test.20260701T160745Z-g707922b62853-remote-dev-bin-test-707922b62853-1782921788",
+        "b9czlzpm57h1ilw75sdnm4swg7x0da2j-remote-dev-runtime-host-service-test.20260701T160745Z-g707922b62853-remote-dev-bin-test-707922b62853-1782921788",
+        "f8mk8d63dmbyqlc9zbdsmlwbfiyk44lz-remote-dev-agent-runtime"
+      ],
+      "system": "aarch64-linux",
+      "top_nar_size_paths": [
+        {
+          "nar_size": 17213816,
+          "path": "/nix/store/5bml4f4lgqjsqsx1ivz2qksx8rdswxrn-remote-dev-host-service-test.20260701T160745Z-g707922b62853-remote-dev-bin-test-707922b62853-1782921788"
+        },
+        {
+          "nar_size": 2024128,
+          "path": "/nix/store/b9czlzpm57h1ilw75sdnm4swg7x0da2j-remote-dev-runtime-host-service-test.20260701T160745Z-g707922b62853-remote-dev-bin-test-707922b62853-1782921788"
+        },
+        {
+          "nar_size": 1008,
+          "path": "/nix/store/f8mk8d63dmbyqlc9zbdsmlwbfiyk44lz-remote-dev-agent-runtime"
+        }
+      ],
+      "unsigned_paths": 3
+    }
+  ],
+  "generated_at": "2026-07-01T16:10:18Z",
+  "host_arches": [
+    "aarch64"
+  ],
+  "host_groups_catalogs": {
+    "aarch64-linux": "cloud/host-groups-catalog-aarch64-linux.json"
+  },
+  "host_service_image": "cloud/host-service-image.json",
+  "remote_dev_systems": [
+    "aarch64-linux"
+  ],
+  "retention": {
+    "max_commits": 5,
+    "max_days": 7
+  },
+  "schema_version": 1,
+  "source": {
+    "ref": "remote-dev-bin-test/707922b62853-1782921788",
+    "repo": "M-Adoo/remote-dev",
+    "sha": "707922b628537c1832ecd15a3e806ee2d7dec518"
+  },
+  "target": {
+    "branch": "host-service-test",
+    "cloud": "test",
+    "name": "host-service-test",
+    "project": "remote-dev-host-test"
+  }
+}

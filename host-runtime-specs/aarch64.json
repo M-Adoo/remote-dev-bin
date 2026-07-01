@@ -1,0 +1,34 @@
+{
+  "arch": "aarch64",
+  "aws_official_nixos_ami": {
+    "arch": "arm64",
+    "name_pattern": "nixos/*",
+    "owner": "427812963091",
+    "preferred_release_prefix": "25.",
+    "root_device_name": "/dev/xvda"
+  },
+  "baseline_id": "remote-dev-agent-runtime-v2",
+  "bootstrap": {
+    "agent_runtime_attr": "packages.aarch64-linux.remote-dev-agent-runtime",
+    "agent_runtime_closure_manifest_file": "cloud/agent-runtime-closure-aarch64-linux.json",
+    "agent_runtime_fingerprint": "agent-runtime-v1:b0244afdda27a3e91b050035838c4d17703c1a590981926695ef7755b28c21d2",
+    "agent_runtime_store_path": "/nix/store/f8mk8d63dmbyqlc9zbdsmlwbfiyk44lz-remote-dev-agent-runtime",
+    "git_core_group_fingerprint": "host-groups-group-v2:5adffd74b31b2e47638fa72b0378cba2d494f7c7a35d29dc09317bb7534c4b50",
+    "git_core_group_store_path": "/nix/store/h35m89lfbbdlqs2wd06gl41151yqqr2f-remote-dev-host-group-git-core-aarch64-linux",
+    "host_groups_catalog_file": "cloud/host-groups-catalog-aarch64-linux.json",
+    "host_groups_catalog_fingerprint": "host-groups-catalog-v2:2aa4590c3efc3e1ab925023c4ae953e7cf4458dbb4df1792b6f0bdcc1e6b4e46",
+    "nixpkgs_rev": "1073dad219cb244572b74da2b20c7fe39cb3fa9e",
+    "system": "aarch64-linux"
+  },
+  "disk_count": 1,
+  "firstboot_module": "nixosModules.remote-dev-firstboot-register",
+  "firstboot_schema_version": 2,
+  "host_module": "nixosModules.remote-dev-host",
+  "image_contract_id": "remote-dev-cloud-host-v1",
+  "image_schema_version": 3,
+  "nix_cache": {
+    "substituter_url": "https://raw.githubusercontent.com/M-Adoo/remote-dev-bin/host-service-test/nix-cache",
+    "trusted_public_key": "remote-dev-bin:M58YnePxJv1ZwqFIe2L1rSCmTM+kUGa5wac0gQ1Xrl4="
+  },
+  "schema_version": 9
+}

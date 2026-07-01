@@ -1,0 +1,10 @@
+StorePath: /nix/store/spfwqvpy3r9fdgck320jmiyrn2mfdcph-remote-dev-host-group-build-baseline-aarch64-linux
+URL: nar/1bh0wy97kmiai96n9b5y3yl47cmxdpg0jmqrbvi44l2rq17642v0.nar.xz
+Compression: xz
+FileHash: sha256:1bh0wy97kmiai96n9b5y3yl47cmxdpg0jmqrbvi44l2rq17642v0
+FileSize: 352
+NarHash: sha256:0gpsnz3nbh7bsgh0cilsar5j7bwkxzy56565f9qiz8linmgpyl45
+NarSize: 1656
+References: rsg90cysdh7bgs6d4jdr8g9wssnh9mf0-gnumake-4.4.1 yv34a3lmrjvnm4bzizn97j112q19pk8z-pkg-config-wrapper-0.29.2
+Deriver: 4wbai0qyldfviz1pqk78qgz63a2x7zl0-remote-dev-host-group-build-baseline-aarch64-linux.drv
+Sig: remote-dev-bin:MoWq3FzS4SScCtIeyq+AGjvbgkIiRjYOfBCnE7wtbqquTtJWS6obzscaWqGhRo/kSYy6QvyDP/LzoRszF/bfAQ==

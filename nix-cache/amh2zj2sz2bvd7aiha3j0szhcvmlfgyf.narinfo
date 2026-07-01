@@ -1,0 +1,10 @@
+StorePath: /nix/store/amh2zj2sz2bvd7aiha3j0szhcvmlfgyf-remote-dev-host-group-compression-tools-aarch64-linux
+URL: nar/03m8j0y6i423138gmipqsni9jgij8xjf4r5pf625m9qwf1z5kzqr.nar.xz
+Compression: xz
+FileHash: sha256:03m8j0y6i423138gmipqsni9jgij8xjf4r5pf625m9qwf1z5kzqr
+FileSize: 272
+NarHash: sha256:0xykmmrfkcvvxanmzigy4v0xpa8z6lzav73rn1g3dpwd83b0pkm1
+NarSize: 1120
+References: 3n6kjqdhx1wy77s5g5bqakw4yqagsz5w-zstd-1.5.7-bin
+Deriver: yi54azwda66sgslbi71z4vspil2n8alx-remote-dev-host-group-compression-tools-aarch64-linux.drv
+Sig: remote-dev-bin:q6EajIpC/pTPZnJw+gsqLQ173J4f19BnO7yxbAEdNbUuiNh4zu/FY77B6qwRoCmWXkRtYukmLTa50JOerPL2DA==

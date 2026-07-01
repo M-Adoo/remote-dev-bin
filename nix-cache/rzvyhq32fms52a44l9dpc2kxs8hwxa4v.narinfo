@@ -1,0 +1,10 @@
+StorePath: /nix/store/rzvyhq32fms52a44l9dpc2kxs8hwxa4v-remote-dev-host-group-host-base-tools-aarch64-linux
+URL: nar/1qsyw2mk88v41znk54y1lashql6rs0m1gcj5dx457d27c21srb4h.nar.xz
+Compression: xz
+FileHash: sha256:1qsyw2mk88v41znk54y1lashql6rs0m1gcj5dx457d27c21srb4h
+FileSize: 760
+NarHash: sha256:1rn3hz8d7pvnidf8f49yn32mp7g4gb02fnb1p2jwf16w4kfggy8i
+NarSize: 5480
+References: 2azkqwknbxpcvcc7cmqrbxnk5s25qzgd-bash-interactive-5.3p3 anip6zxwkwjcbl30ad742qpbzb078n9w-util-linux-2.41.3-bin bmc5jqkv17g4m6r73y6p8998wwj69cvl-nix-2.31.2 dlcl518062w33dmnwqc10gqp1czl2y6f-iproute2-6.17.0 hgi9m6fqyqipznqs4rc28s2hx09w7nvb-systemd-258.3 qlfnvsv9kawvlm41g02wfpy8wdnnb5zm-curl-8.18.0-bin s29f95k50f7rmydgicz6rzls6f0xmhnv-openssh-10.2p1 ymnsyzxsqcbdk3ycngm091d2j6n7ky4v-coreutils-9.8
+Deriver: fzl5a8yh0f2xq01fn9gjf8cskzxsk7iv-remote-dev-host-group-host-base-tools-aarch64-linux.drv
+Sig: remote-dev-bin:hax8BVMREo9cgUbD3qXFMUzZuV9/Fq/WVUF7RhJ1+k9XIKNjHLYZQk1HHe3NP5syACdbymrM2J8XzMxcx2QhAQ==

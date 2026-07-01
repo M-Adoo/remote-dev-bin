@@ -1,0 +1,10 @@
+StorePath: /nix/store/vx4qivfpkp6r13vd2pdd8g8fzjmwxsn4-remote-dev-host-group-nix-source-baseline-aarch64-linux
+URL: nar/13s52rjh297s9c0y2cs53pmh5j84sjbjx7h7mip16hsfsha6nrrz.nar.xz
+Compression: xz
+FileHash: sha256:13s52rjh297s9c0y2cs53pmh5j84sjbjx7h7mip16hsfsha6nrrz
+FileSize: 260
+NarHash: sha256:0j6xk0m7gkx1m2w1mbgvsdxj09rjhciqpfdldvdhn040sip9sqd6
+NarSize: 720
+References: m70b4h70kijzf81a4xs986kmyvvg9zar-remote-dev-nix-source-baseline-aarch64-linux
+Deriver: mpdyjl7546cd7c9qdd5y48g8yapi34j1-remote-dev-host-group-nix-source-baseline-aarch64-linux.drv
+Sig: remote-dev-bin:7ReOHha/ZONjkVKthejVtZLxYDxjwDE4fi7YE3t94dfX4LGS2YpQoYMhG85Z2UeN6aw2lU5/CkILWWsRiujfBA==

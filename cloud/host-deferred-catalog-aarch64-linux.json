@@ -1,0 +1,186 @@
+{
+  "fingerprint": "host-deferred-catalog-v1:3e752830baf361e496954a3264b49eef1d4da8ed8dc347606143041bb6ca565d",
+  "groups": [
+    {
+      "auto_prepare": 0,
+      "closure_manifest_file": "cloud/host-deferred/git-core-aarch64-linux.json",
+      "fingerprint": "host-deferred-group-v1:a2347d74e155fb9447320f6b42af6e3bd5b46b69dc34fab10bc391ac45c89c2b",
+      "id": "git-core",
+      "installable": "devShells.aarch64-linux.git-core",
+      "labels": [
+        "git",
+        "workspace-sync",
+        "bootstrap",
+        "host-default"
+      ],
+      "shims": [
+        {
+          "command": "git"
+        }
+      ]
+    },
+    {
+      "auto_prepare": 5,
+      "closure_manifest_file": "cloud/host-deferred/mosh-transport-aarch64-linux.json",
+      "fingerprint": "host-deferred-group-v1:e8cf10610d58d69ae616df985bd89d6e7c843ba9b1a758b0a79eff13e6b66bea",
+      "id": "mosh-transport",
+      "installable": "devShells.aarch64-linux.mosh-transport",
+      "labels": [
+        "terminal",
+        "mosh",
+        "transport",
+        "host-default"
+      ],
+      "shims": [
+        {
+          "command": "mosh-server"
+        }
+      ]
+    },
+    {
+      "auto_prepare": 10,
+      "closure_manifest_file": "cloud/host-deferred/default-dev-shell-prefill-aarch64-linux.json",
+      "fingerprint": "host-deferred-group-v1:9a8c9391e9fb0f7fdcb15d7af5142e1c78e4ae1434fd479a85ea66fe1564cd97",
+      "id": "default-dev-shell-prefill",
+      "installable": "devShells.aarch64-linux.default-dev-shell-prefill",
+      "labels": [
+        "default-shell",
+        "store-prefill",
+        "workspace-eager-prefill",
+        "host-default"
+      ],
+      "shims": []
+    },
+    {
+      "auto_prepare": 20,
+      "closure_manifest_file": "cloud/host-deferred/nix-source-baseline-aarch64-linux.json",
+      "fingerprint": "host-deferred-group-v1:4c6d4f635c91ef0e549a61d1a28101d90dc566f5e9920829fa2adc12e7cb5aba",
+      "id": "nix-source-baseline",
+      "installable": "devShells.aarch64-linux.nix-source-baseline",
+      "labels": [
+        "nix",
+        "source",
+        "store-prefill",
+        "host-default"
+      ],
+      "shims": []
+    },
+    {
+      "auto_prepare": 30,
+      "closure_manifest_file": "cloud/host-deferred/shell-startup-aarch64-linux.json",
+      "fingerprint": "host-deferred-group-v1:a0509c39919cf2b84415af2a69baea6a47876b04794c9b0fcf543db04012e2f8",
+      "id": "shell-startup",
+      "installable": "devShells.aarch64-linux.shell-startup",
+      "labels": [
+        "shell-baseline",
+        "shell",
+        "interactive",
+        "startup",
+        "host-default"
+      ],
+      "shims": [
+        {
+          "command": "zsh"
+        },
+        {
+          "command": "starship"
+        }
+      ]
+    },
+    {
+      "auto_prepare": 40,
+      "closure_manifest_file": "cloud/host-deferred/shell-extras-aarch64-linux.json",
+      "fingerprint": "host-deferred-group-v1:b56f31ab6cfc05f2669411339d90a6e30810040fd8743e864ca408dfc149d99a",
+      "id": "shell-extras",
+      "installable": "devShells.aarch64-linux.shell-extras",
+      "labels": [
+        "shell",
+        "interactive",
+        "extras",
+        "host-default"
+      ],
+      "shims": [
+        {
+          "command": "fzf"
+        }
+      ]
+    },
+    {
+      "auto_prepare": 45,
+      "closure_manifest_file": "cloud/host-deferred/vscode-compat-aarch64-linux.json",
+      "fingerprint": "host-deferred-group-v1:fedfd733b36ad111b0f9f960dfb34363bce67b217e655ffc4ee6a4bb346be531",
+      "id": "vscode-compat",
+      "installable": "devShells.aarch64-linux.vscode-compat",
+      "labels": [
+        "vscode",
+        "editor",
+        "compat",
+        "host-default"
+      ],
+      "shims": [
+        {
+          "command": "patchelf"
+        }
+      ]
+    },
+    {
+      "auto_prepare": 50,
+      "closure_manifest_file": "cloud/host-deferred/compression-tools-aarch64-linux.json",
+      "fingerprint": "host-deferred-group-v1:f500a555e83417075c78b207495cf7df75877451ace01baee49ab5e3420bab71",
+      "id": "compression-tools",
+      "installable": "devShells.aarch64-linux.compression-tools",
+      "labels": [
+        "compression",
+        "archive",
+        "host-default"
+      ],
+      "shims": [
+        {
+          "command": "zstd"
+        }
+      ]
+    },
+    {
+      "auto_prepare": 80,
+      "closure_manifest_file": "cloud/host-deferred/dev-diagnostics-aarch64-linux.json",
+      "fingerprint": "host-deferred-group-v1:512375f8caac30619bbc43df7f48ee987879f3699e25512d0744071a91ff36a2",
+      "id": "dev-diagnostics",
+      "installable": "devShells.aarch64-linux.dev-diagnostics",
+      "labels": [
+        "diagnostic",
+        "cc",
+        "build-debug",
+        "background",
+        "host-default"
+      ],
+      "shims": [
+        {
+          "command": "cc"
+        },
+        {
+          "command": "gcc"
+        },
+        {
+          "command": "clang"
+        },
+        {
+          "command": "pkg-config"
+        },
+        {
+          "command": "make"
+        },
+        {
+          "command": "strace"
+        },
+        {
+          "command": "file"
+        },
+        {
+          "command": "ldd"
+        }
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "system": "aarch64-linux"
+}

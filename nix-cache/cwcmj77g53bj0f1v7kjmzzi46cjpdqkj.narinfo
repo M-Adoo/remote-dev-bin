@@ -1,0 +1,10 @@
+StorePath: /nix/store/cwcmj77g53bj0f1v7kjmzzi46cjpdqkj-remote-dev-host-group-default-dev-shell-prefill-aarch64-linux
+URL: nar/0qhym8ybi2wh9xibyiyx0zhglpsg4cik5a1avfxphpwjd5jad069.nar.xz
+Compression: xz
+FileHash: sha256:0qhym8ybi2wh9xibyiyx0zhglpsg4cik5a1avfxphpwjd5jad069
+FileSize: 300
+NarHash: sha256:0dprd1gb4dis6qq9imakvg39c6vb35nckr2kd2lnbbzy3yzyhccl
+NarSize: 952
+References: 2azkqwknbxpcvcc7cmqrbxnk5s25qzgd-bash-interactive-5.3p3 rrd22q5cjilnf45kgww6abbcfb2bwrvj-gcc-14.3.0-lib
+Deriver: 9kkijv388ckwamjv9gb5cvv82nvnsm8v-remote-dev-host-group-default-dev-shell-prefill-aarch64-linux.drv
+Sig: remote-dev-bin:FdGNn/sQjDOsoemnSgPYbvNx8VglfPM3DuHEqar/vd43TeC8eBLdsCFgaskRVoXiuo8DWh3efwYyDf55Y1G7BA==

@@ -1,0 +1,10 @@
+StorePath: /nix/store/c4id9azs8f10wh6z214grz6y7yhsvgmq-remote-dev-host-group-dev-diagnostics-aarch64-linux
+URL: nar/141gsn4dpkknkvcxr6ampdzxh95krigsz2qnn4vnni3m3im09isb.nar.xz
+Compression: xz
+FileHash: sha256:141gsn4dpkknkvcxr6ampdzxh95krigsz2qnn4vnni3m3im09isb
+FileSize: 400
+NarHash: sha256:0ay1msfinccj757xqppiz8ibw3pgfwis4mpmn8jg09mmwkpf00nr
+NarSize: 2104
+References: dzsnir13xr1gqca23s2wpd7qhp0xj7xf-strace-6.18 g7h1pqj9d2il48cn29829xwr04a4f60m-file-5.45 qn3qyszs4fqq2f2hfqnvj3d6a0nn4jdh-glibc-2.40-218-bin
+Deriver: b47aak9l0b3wnxmvi4swl5yrzzcf3vsa-remote-dev-host-group-dev-diagnostics-aarch64-linux.drv
+Sig: remote-dev-bin:P4+Ydc54fovRYmjofl69xh74LPycOor0MwMQqTAnFrBtffT5DmLielqG2I+p/WNzKxnYtsBbCPZELq2BbjA0CQ==

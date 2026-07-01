@@ -1,0 +1,17 @@
+{
+  "arch": "aarch64",
+  "artifact": "remote-dev-aarch64-linux",
+  "binary": "remote-dev",
+  "cargo_target": "aarch64-unknown-linux-musl",
+  "generated_at": "2026-07-01T16:06:33Z",
+  "kind": "remote-dev",
+  "package": "remote-dev",
+  "schema_version": 1,
+  "sha256": "96efaa79caf44d79f048337c52638451c3eaf5155fc185d85619b9babb83d766",
+  "source_ref": "remote-dev-bin-test/707922b62853-1782921788",
+  "source_repo": "M-Adoo/remote-dev",
+  "source_sha": "707922b628537c1832ecd15a3e806ee2d7dec518",
+  "system": "aarch64-linux",
+  "tarball": "remote-dev-aarch64-linux.tar.gz",
+  "target": "host-service-test"
+}
