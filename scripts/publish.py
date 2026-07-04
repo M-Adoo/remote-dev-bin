@@ -35,7 +35,10 @@ IMAGE_CONTRACT_ID = "remote-dev-cloud-host-v1"
 HOST_IMAGE_SPEC_SCHEMA_VERSION = 9
 HOST_IMAGE_SCHEMA_VERSION = 3
 FIRSTBOOT_SCHEMA_VERSION = 2
-HOST_GROUPS_CATALOG_SCHEMA_VERSION = 2
+HOST_GROUPS_CATALOG_SCHEMA_VERSION = 3
+HOST_DEFAULT_SHELL_CONTRACT_ID = "remote-dev-default-shell-v1"
+HOST_DEFAULT_SHELL_GROUP_ID = "default-dev-shell-prefill"
+HOST_RUNTIME_ROOT = "/var/lib/remote-dev/runtime"
 AWS_BOOTSTRAP_FLAKE = "cloud/aws-bootstrap-flake.nix"
 AWS_BOOTSTRAP_LOCK = "cloud/aws-bootstrap-flake.lock"
 NIX_CACHE_DIR = "nix-cache"
@@ -149,7 +152,7 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
             "default-shell",
             "store-prefill",
         ],
-        "inputs": ["pkgs.bashInteractive", "pkgs.stdenv.cc.cc.lib"],
+        "inputs": ["defaultShellEnvProfile"],
         "commands": [],
     },
     {
@@ -1098,6 +1101,10 @@ def host_groups_closure_manifest_file(group_id: str, system: str) -> str:
     return f"{HOST_GROUPS_DIR}/{group_id}-{system}.json"
 
 
+def host_runtime_group_env_snapshot_path(group_id: str) -> str:
+    return f"{HOST_RUNTIME_ROOT}/groups/{group_id}/env"
+
+
 def host_group_package_attr(group_id: str) -> str:
     return f"remote-dev-host-group-{group_id}"
 
@@ -1143,7 +1150,24 @@ def host_groups_group_fingerprint(group: dict[str, Any], system: str, store_path
         sort_keys=True,
         separators=(",", ":"),
     )
-    return "host-groups-group-v2:" + hashlib.sha256(raw.encode()).hexdigest()
+    return "host-groups-group-v3:" + hashlib.sha256(raw.encode()).hexdigest()
+
+
+def host_groups_catalog_contracts(system: str, groups: list[dict[str, Any]]) -> list[dict[str, str]]:
+    group_by_id = {group["id"]: group for group in groups}
+    default_shell = group_by_id.get(HOST_DEFAULT_SHELL_GROUP_ID)
+    if default_shell is None:
+        raise Fail(f"host groups catalog is missing {HOST_DEFAULT_SHELL_GROUP_ID}")
+    return [
+        {
+            "id": HOST_DEFAULT_SHELL_CONTRACT_ID,
+            "group_id": HOST_DEFAULT_SHELL_GROUP_ID,
+            "system": system,
+            "fingerprint": default_shell["fingerprint"],
+            "store_path": default_shell["store_path"],
+            "env_snapshot": host_runtime_group_env_snapshot_path(HOST_DEFAULT_SHELL_GROUP_ID),
+        }
+    ]
 
 
 def host_groups_catalog_groups(
@@ -1170,17 +1194,20 @@ def host_groups_catalog_groups(
     return groups
 
 
-def host_groups_catalog_fingerprint(system: str, groups: list[dict[str, Any]]) -> str:
+def host_groups_catalog_fingerprint(
+    system: str, contracts: list[dict[str, str]], groups: list[dict[str, Any]]
+) -> str:
     raw = json.dumps(
         {
             "schema_version": HOST_GROUPS_CATALOG_SCHEMA_VERSION,
             "system": system,
+            "contracts": contracts,
             "groups": groups,
         },
         sort_keys=True,
         separators=(",", ":"),
     )
-    return "host-groups-catalog-v2:" + hashlib.sha256(raw.encode()).hexdigest()
+    return "host-groups-catalog-v3:" + hashlib.sha256(raw.encode()).hexdigest()
 
 
 def write_host_groups_catalogs(
@@ -1192,7 +1219,8 @@ def write_host_groups_catalogs(
     for arch in config.host_arches:
         system = f"{arch}-linux"
         groups = host_groups_catalog_groups(system, group_roots)
-        fingerprint = host_groups_catalog_fingerprint(system, groups)
+        contracts = host_groups_catalog_contracts(system, groups)
+        fingerprint = host_groups_catalog_fingerprint(system, contracts, groups)
         catalog_file = host_groups_catalog_file(system)
         json_dump(
             branch_dir / catalog_file,
@@ -1200,6 +1228,7 @@ def write_host_groups_catalogs(
                 "schema_version": HOST_GROUPS_CATALOG_SCHEMA_VERSION,
                 "system": system,
                 "fingerprint": fingerprint,
+                "contracts": contracts,
                 "groups": groups,
             },
         )
@@ -2231,15 +2260,19 @@ def validate_tree(branch_dir: Path, config: TargetConfig) -> None:
             raise Fail(f"{spec_path}: host groups catalog is missing")
         catalog = json_load(catalog_path)
         groups = catalog.get("groups")
+        contracts = catalog.get("contracts")
         if catalog.get("schema_version") != HOST_GROUPS_CATALOG_SCHEMA_VERSION:
             raise Fail(f"{catalog_file}: schema_version mismatch")
         if catalog.get("system") != system:
             raise Fail(f"{catalog_file}: system mismatch")
         if not isinstance(groups, list) or not groups:
             raise Fail(f"{catalog_file}: groups must be a non-empty list")
+        expected_contracts = host_groups_catalog_contracts(system, groups)
+        if contracts != expected_contracts:
+            raise Fail(f"{catalog_file}: default shell contract mismatch")
         if catalog.get("fingerprint") != catalog_fingerprint:
             raise Fail(f"{spec_path}: host groups catalog fingerprint mismatch")
-        expected_fingerprint = host_groups_catalog_fingerprint(system, groups)
+        expected_fingerprint = host_groups_catalog_fingerprint(system, contracts, groups)
         if catalog_fingerprint != expected_fingerprint:
             raise Fail(f"{catalog_file}: fingerprint does not match catalog content")
         expected_group_specs = {group["id"]: group for group in HOST_GROUPS}
@@ -3586,6 +3619,9 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             "remote-dev-agent-runtime = mkAgentRuntimePackage pkgs remote-dev remote-dev-runtime;",
             'mkAgentRuntimePackage = pkgs: remoteDevPackage: runtimePackage:',
             'hostGroupPackages = system: pkgs:',
+            'defaultShellEnvProfile = pkgs.buildEnv {',
+            'name = "remote-dev-default-shell-v1-${system}";',
+            "envProfile = defaultShellEnvProfile;",
             'host-base-tools = mkHostGroupBundle {',
             'name = "host-base-tools";',
             'mkHostGroupCommand = package: command:',
@@ -3616,6 +3652,7 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             "pkgs.patchelf",
             "pkgs.pkg-config",
             "pkgs.starship",
+            "pkgs.stdenv.cc.cc.lib",
             "pkgs.strace",
             "pkgs.zsh",
             "pkgs.zstd",
@@ -3690,15 +3727,27 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         if spec["bootstrap"]["host_groups_catalog_file"] != "cloud/host-groups-catalog-aarch64-linux.json":
             raise Fail("runtime spec did not point at the host groups catalog")
         catalog = json_load(branch / "cloud/host-groups-catalog-aarch64-linux.json")
-        if catalog["schema_version"] != 2:
-            raise Fail("host groups catalog did not use schema v2")
+        if catalog["schema_version"] != HOST_GROUPS_CATALOG_SCHEMA_VERSION:
+            raise Fail("host groups catalog did not use schema v3")
         if catalog["fingerprint"] != spec["bootstrap"]["host_groups_catalog_fingerprint"]:
             raise Fail("runtime spec host groups catalog fingerprint mismatch")
+        if catalog["contracts"] != host_groups_catalog_contracts("aarch64-linux", catalog["groups"]):
+            raise Fail("host groups catalog default shell contract mismatch")
         groups = {group["id"]: group for group in catalog["groups"]}
         if set(groups) != {group["id"] for group in HOST_GROUPS}:
             raise Fail("host groups catalog group set mismatch")
         if groups["default-dev-shell-prefill"]["commands"] != []:
             raise Fail("default dev shell prefill must not expose fake commands")
+        default_shell_contract = catalog["contracts"][0]
+        if default_shell_contract["id"] != HOST_DEFAULT_SHELL_CONTRACT_ID:
+            raise Fail("default shell contract id mismatch")
+        if default_shell_contract["group_id"] != "default-dev-shell-prefill":
+            raise Fail("default shell contract group mismatch")
+        if (
+            default_shell_contract["env_snapshot"]
+            != "/var/lib/remote-dev/runtime/groups/default-dev-shell-prefill/env"
+        ):
+            raise Fail("default shell contract env snapshot mismatch")
         host_base_commands = [shim["command"] for shim in groups["host-base-tools"]["commands"]]
         if host_base_commands != list(HOST_BASE_COMMANDS):
             raise Fail("host-base-tools command surface mismatch")
