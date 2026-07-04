@@ -117,7 +117,7 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
     {
         "id": "host-base-tools",
         "priority": 25,
-        "labels": ["preconnect", "shell-baseline", "host-base", "host-tools"],
+        "labels": ["preconnect", "shell-baseline-nonblocking", "host-base", "host-tools"],
         "inputs": [
             "pkgs.bash",
             "pkgs.coreutils",
@@ -3762,14 +3762,24 @@ def cmd_self_test(_: argparse.Namespace) -> None:
                 for group in sorted(catalog["groups"], key=lambda item: (item["priority"], item["id"]))
                 if label in group["labels"]
             ]
-            for label in ["source-bootstrap", "shell-baseline", "preconnect"]
+            for label in [
+                "source-bootstrap",
+                "shell-baseline",
+                "shell-baseline-nonblocking",
+                "preconnect",
+            ]
         }
         if groups_by_label["source-bootstrap"] != ["git-core"]:
             raise Fail(f"source-bootstrap lane mismatch: {groups_by_label['source-bootstrap']}")
         if any("workspace-prefill" in group["labels"] for group in catalog["groups"]):
             raise Fail("host groups catalog retained workspace-prefill label")
-        if groups_by_label["shell-baseline"] != ["host-base-tools", "shell-startup"]:
+        if groups_by_label["shell-baseline"] != ["shell-startup"]:
             raise Fail(f"shell-baseline lane mismatch: {groups_by_label['shell-baseline']}")
+        if groups_by_label["shell-baseline-nonblocking"] != ["host-base-tools"]:
+            raise Fail(
+                "shell-baseline-nonblocking lane mismatch: "
+                f"{groups_by_label['shell-baseline-nonblocking']}"
+            )
         if groups_by_label["preconnect"] != [
             "default-dev-shell-prefill",
             "mosh-transport",
