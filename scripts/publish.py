@@ -116,7 +116,7 @@ HOST_BASE_COMMANDS = (
 HOST_GROUPS: tuple[dict[str, Any], ...] = (
     {
         "id": "host-base-tools",
-        "priority": 10,
+        "priority": 25,
         "labels": ["preconnect", "shell-baseline", "host-base", "host-tools"],
         "inputs": [
             "pkgs.bash",
@@ -139,7 +139,7 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "mosh-transport",
-        "priority": 40,
+        "priority": 22,
         "labels": ["preconnect", "terminal", "mosh", "transport"],
         "inputs": ["pkgs.mosh"],
         "commands": ["mosh-server"],
@@ -3771,10 +3771,10 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         if groups_by_label["shell-baseline"] != ["host-base-tools", "shell-startup"]:
             raise Fail(f"shell-baseline lane mismatch: {groups_by_label['shell-baseline']}")
         if groups_by_label["preconnect"] != [
-            "host-base-tools",
             "default-dev-shell-prefill",
-            "nix-source-baseline",
             "mosh-transport",
+            "host-base-tools",
+            "nix-source-baseline",
             "shell-startup",
         ]:
             raise Fail(f"preconnect lane mismatch: {groups_by_label['preconnect']}")
