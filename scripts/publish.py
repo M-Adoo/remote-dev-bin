@@ -1548,12 +1548,19 @@ def assert_agent_runtime_closure_names(path_names: list[str]) -> None:
             for allowed in AGENT_RUNTIME_CLOSURE_ALLOWED_NAMES
         ):
             unexpected.append(raw_name)
-        if any(marker in name for marker in AGENT_RUNTIME_CLOSURE_DENIED_MARKERS):
+        if any(
+            path_name_has_denied_marker(name, marker)
+            for marker in AGENT_RUNTIME_CLOSURE_DENIED_MARKERS
+        ):
             denied.append(raw_name)
     if unexpected:
         raise Fail("agent runtime closure contains non-agent paths: " + ", ".join(unexpected))
     if denied:
         raise Fail("agent runtime closure contains forbidden toolchain paths: " + ", ".join(denied))
+
+
+def path_name_has_denied_marker(name: str, marker: str) -> bool:
+    return re.search(rf"(^|-){re.escape(marker)}($|-)", name) is not None
 
 
 def large_source_path(path: str, info: dict[str, Any]) -> bool:
@@ -3459,6 +3466,12 @@ def cmd_self_test(_: argparse.Namespace) -> None:
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-agent-runtime-aarch64-linux",
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-remote-dev-aarch64-linux",
                 "cccccccccccccccccccccccccccccccc-remote-dev-runtime-aarch64-linux",
+            ]
+        )
+        assert_agent_runtime_closure_names(
+            [
+                "dddddddddddddddddddddddddddddddd-remote-dev-host-service-test.20260706T040315Z-gcc0b7cd233da-remote-dev-bin-test-cc0b7cd233da-1783310306",
+                "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-remote-dev-runtime-host-service-test.20260706T040315Z-gcc0b7cd233da-remote-dev-bin-test-cc0b7cd233da-1783310306",
             ]
         )
         for bad_name in [
