@@ -139,14 +139,14 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "mosh-transport",
-        "priority": 5,
+        "priority": 10,
         "labels": ["preconnect", "terminal", "mosh", "transport"],
         "inputs": ["pkgs.mosh"],
         "commands": ["mosh-server"],
     },
     {
         "id": "default-dev-shell-prefill",
-        "priority": 10,
+        "priority": 5,
         "labels": [
             "preconnect",
             "default-shell",
@@ -164,7 +164,7 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "shell-startup",
-        "priority": 50,
+        "priority": 6,
         "labels": ["preconnect", "shell-baseline", "shell", "interactive", "startup"],
         "inputs": ["pkgs.zsh", "pkgs.starship"],
         "commands": ["zsh", "starship"],
@@ -3794,11 +3794,11 @@ def cmd_self_test(_: argparse.Namespace) -> None:
                 f"{groups_by_label['shell-baseline-nonblocking']}"
             )
         if groups_by_label["preconnect"] != [
-            "mosh-transport",
             "default-dev-shell-prefill",
+            "shell-startup",
+            "mosh-transport",
             "host-base-tools",
             "nix-source-baseline",
-            "shell-startup",
         ]:
             raise Fail(f"preconnect lane mismatch: {groups_by_label['preconnect']}")
         git_commands = [shim["command"] for shim in groups["git-core"]["commands"]]
