@@ -139,14 +139,14 @@ HOST_GROUPS: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "mosh-transport",
-        "priority": 22,
+        "priority": 5,
         "labels": ["preconnect", "terminal", "mosh", "transport"],
         "inputs": ["pkgs.mosh"],
         "commands": ["mosh-server"],
     },
     {
         "id": "default-dev-shell-prefill",
-        "priority": 20,
+        "priority": 10,
         "labels": [
             "preconnect",
             "default-shell",
@@ -3794,8 +3794,8 @@ def cmd_self_test(_: argparse.Namespace) -> None:
                 f"{groups_by_label['shell-baseline-nonblocking']}"
             )
         if groups_by_label["preconnect"] != [
-            "default-dev-shell-prefill",
             "mosh-transport",
+            "default-dev-shell-prefill",
             "host-base-tools",
             "nix-source-baseline",
             "shell-startup",
