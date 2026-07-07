@@ -36,7 +36,7 @@ HOST_IMAGE_SPEC_SCHEMA_VERSION = 9
 HOST_IMAGE_SCHEMA_VERSION = 3
 FIRSTBOOT_SCHEMA_VERSION = 2
 HOST_GROUPS_CATALOG_SCHEMA_VERSION = 3
-HOST_DEFAULT_SHELL_CONTRACT_ID = "remote-dev-default-shell-v1"
+HOST_DEFAULT_SHELL_CONTRACT_ID = "remote-dev-default-shell-v2"
 HOST_DEFAULT_SHELL_GROUP_ID = "default-dev-shell-prefill"
 HOST_RUNTIME_ROOT = "/var/lib/remote-dev/runtime"
 AWS_BOOTSTRAP_FLAKE = "cloud/aws-bootstrap-flake.nix"
@@ -3597,6 +3597,16 @@ def cmd_self_test(_: argparse.Namespace) -> None:
                 raise Fail(f"rendered flake host group block {group_id} has no end")
             return flake[start : min(ends)]
 
+        def default_shell_env_profile_block() -> str:
+            marker = "          defaultShellEnvProfile = pkgs.buildEnv {"
+            start = flake.find(marker)
+            if start < 0:
+                raise Fail("rendered flake is missing defaultShellEnvProfile block")
+            end = flake.find("\n          nixSourceBaseline =", start)
+            if end < 0:
+                raise Fail("rendered flake defaultShellEnvProfile block has no end")
+            return flake[start:end]
+
         def block_contains_package(block: str, package: str) -> bool:
             pattern = r"(?<![A-Za-z0-9_.-])" + re.escape(package) + r"(?![A-Za-z0-9_.-])"
             return re.search(pattern, block) is not None
@@ -3618,6 +3628,21 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         for package in ["pkgs.coreutils", "pkgs.curl", "pkgs.gnumake", "pkgs.openssh", "pkgs.pkg-config"]:
             if block_contains_package(default_prefill_block, package):
                 raise Fail(f"default-dev-shell-prefill must not retain overlapping input {package}")
+        default_shell_block = default_shell_env_profile_block()
+        for expected in [
+            'name = "remote-dev-default-shell-v2-${system}";',
+            "pkgs.bashInteractive",
+            "pkgs.coreutils",
+            'pathsToLink = [ "/bin" ];',
+        ]:
+            if expected not in default_shell_block:
+                raise Fail(f"defaultShellEnvProfile is missing {expected}")
+        for package in ["pkgs.gcc", "pkgs.glibc.bin", "pkgs.stdenv.cc.cc.lib"]:
+            if block_contains_package(default_shell_block, package):
+                raise Fail(f"defaultShellEnvProfile must not retain C toolchain input {package}")
+        for stale_link in ['"/lib"', '"/lib64"', '"/include"']:
+            if stale_link in default_shell_block:
+                raise Fail(f"defaultShellEnvProfile must not retain pathsToLink entry {stale_link}")
         git_core_block = host_group_block("git-core")
         for command in GIT_CORE_COMMANDS:
             expected = f'(mkHostGroupCommand pkgs.gitMinimal "{command}")'
@@ -3633,7 +3658,7 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             'mkAgentRuntimePackage = pkgs: remoteDevPackage: runtimePackage:',
             'hostGroupPackages = system: pkgs:',
             'defaultShellEnvProfile = pkgs.buildEnv {',
-            'name = "remote-dev-default-shell-v1-${system}";',
+            'name = "remote-dev-default-shell-v2-${system}";',
             "envProfile = defaultShellEnvProfile;",
             'host-base-tools = mkHostGroupBundle {',
             'name = "host-base-tools";',
@@ -3665,7 +3690,6 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             "pkgs.patchelf",
             "pkgs.pkg-config",
             "pkgs.starship",
-            "pkgs.stdenv.cc.cc.lib",
             "pkgs.strace",
             "pkgs.zsh",
             "pkgs.zstd",

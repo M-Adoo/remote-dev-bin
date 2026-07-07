@@ -91,15 +91,12 @@ __HOST_IMAGE_SPEC_VALUES__
               ''
             );
           defaultShellEnvProfile = pkgs.buildEnv {
-            name = "remote-dev-default-shell-v1-${system}";
+            name = "remote-dev-default-shell-v2-${system}";
             paths = [
               pkgs.bashInteractive
               pkgs.coreutils
-              pkgs.gcc
-              pkgs.glibc.bin
-              pkgs.stdenv.cc.cc.lib
             ];
-            pathsToLink = [ "/bin" "/lib" "/lib64" "/include" ];
+            pathsToLink = [ "/bin" ];
           };
           nixSourceBaseline = pkgs.runCommand "remote-dev-nix-source-baseline-${system}" { } ''
             mkdir -p $out
