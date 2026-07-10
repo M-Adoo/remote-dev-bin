@@ -18,10 +18,11 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 import urllib.error
 import urllib.parse
@@ -30,38 +31,25 @@ import urllib.request
 
 REPO = "M-Adoo/remote-dev-bin"
 SOURCE_REPO = "M-Adoo/remote-dev"
-HOST_CONFIG_ID = "remote-dev-agent-runtime-v2"
-IMAGE_CONTRACT_ID = "remote-dev-cloud-host-v1"
-HOST_IMAGE_SPEC_SCHEMA_VERSION = 9
-HOST_IMAGE_SCHEMA_VERSION = 3
-FIRSTBOOT_SCHEMA_VERSION = 2
+HOST_BUNDLE_SCHEMA_VERSION = 1
+FIRSTBOOT_SCHEMA_VERSION = 3
 HOST_GROUPS_CATALOG_SCHEMA_VERSION = 3
 HOST_DEFAULT_SHELL_CONTRACT_ID = "remote-dev-default-shell-v2"
 HOST_DEFAULT_SHELL_GROUP_ID = "default-dev-shell-prefill"
 HOST_RUNTIME_ROOT = "/var/lib/remote-dev/runtime"
-AWS_BOOTSTRAP_FLAKE = "cloud/aws-bootstrap-flake.nix"
-AWS_BOOTSTRAP_LOCK = "cloud/aws-bootstrap-flake.lock"
 NIX_CACHE_DIR = "nix-cache"
 ARTIFACT_DIR = "artifacts"
-HOST_IMAGE_SPEC_DIR = "host-runtime-specs"
 HOST_GROUPS_DIR = "cloud/host-groups"
-DEFAULT_NIXPKGS_REV = "0000000000000000000000000000000000000000"
 GITHUB_MAX_BLOB_BYTES = 100_000_000
 BOOTSTRAP_SOURCE_MAX_BYTES = 5 * 1024 * 1024
 CLOSURE_AUDIT_TOP_NAR_PATHS = 10
 MAX_AGENT_RUNTIME_CLOSURE_PATHS = 3
-REMOTE_CACHE_NARINFO_MAX_BYTES = 256 * 1024
 CLOSURE_AUDIT_MARKERS = (
     "amazon-ssm-agent",
     "git-doc",
     "nixos-manual-html",
     "nix-manual",
 )
-AWS_AMI_INDEX_URL = "https://nixos.github.io/amis/images.json"
-AWS_AMI_PIN_METADATA = "templates/aws-ami-pin.json"
-AWS_AMI_REV_PREFIX_LEN = 12
-AWS_AMI_PREFERRED_RELEASE_PREFIX = "25."
-NIXOS_AMI_NAME_RE = re.compile(r"^nixos/.+\.([0-9a-f]{12})-(x86_64|aarch64)-linux$")
 AGENT_RUNTIME_CLOSURE_ALLOWED_NAMES = (
     "remote-dev-agent-runtime",
     "remote-dev-",
@@ -301,44 +289,6 @@ class TargetConfig:
 
 
 @dataclass(frozen=True)
-class AwsAmiPinImage:
-    region: str
-    host_arch: str
-    aws_arch: str
-    name: str
-    image_id: str
-    creation_date: str
-    rev_prefix: str
-
-
-@dataclass(frozen=True)
-class AwsAmiPinSelection:
-    rev_prefix: str
-    latest_creation_date: str
-    sample_names: dict[str, str]
-    regions_by_arch: dict[str, tuple[str, ...]]
-    images_by_arch: dict[str, dict[str, AwsAmiPinImage]]
-    candidate_summary: list[dict[str, Any]]
-
-
-@dataclass(frozen=True)
-class CachePathRef:
-    label: str
-    path: str
-    info: dict[str, Any] | None
-    local_required: bool
-
-
-@dataclass(frozen=True)
-class RemoteCacheEntry:
-    label: str
-    store_path: str
-    narinfo_path: Path
-    narinfo_relative: str
-    nar_relative: str
-
-
-@dataclass(frozen=True)
 class CloudRunRevision:
     name: str
     created_at: dt.datetime
@@ -384,7 +334,7 @@ def target_config(name: str, arch_selection: str = "both") -> TargetConfig:
     if name == "release":
         return TargetConfig(
             name="release",
-            branch="main",
+            branch="host-service-release",
             cloud="prod",
             project="remote-dev-host-prod",
             remote_dev_systems=(
@@ -654,43 +604,12 @@ def select_binary_manifests(
 
 
 def remove_generated_paths(branch_dir: Path) -> None:
-    for relative in [
-        "build-manifest.json",
-        ARTIFACT_DIR,
-        HOST_IMAGE_SPEC_DIR,
-        "host-image-specs",
-        "host-image-spec.json",
-        "host-service-test-metadata.json",
-        "cloud-images.json",
-        "remote-dev-x86_64-linux.tar.gz",
-        "remote-dev-x86_64-linux.tar.gz.sha256",
-        "remote-dev-aarch64-linux.tar.gz",
-        "remote-dev-aarch64-linux.tar.gz.sha256",
-        "remote-dev-x86_64-darwin.tar.gz",
-        "remote-dev-x86_64-darwin.tar.gz.sha256",
-        "remote-dev-aarch64-darwin.tar.gz",
-        "remote-dev-aarch64-darwin.tar.gz.sha256",
-        "cloud/host-service-image.json",
-        "cloud/host-groups-catalog-x86_64-linux.json",
-        "cloud/host-groups-catalog-aarch64-linux.json",
-        HOST_GROUPS_DIR,
-        "cloud/aws-builder-flake.nix",
-        "cloud/aws-builder-flake.lock",
-        AWS_BOOTSTRAP_FLAKE,
-        AWS_BOOTSTRAP_LOCK,
-        "cloud/aws-bootstrap-closure-x86_64-linux.json",
-        "cloud/aws-bootstrap-closure-aarch64-linux.json",
-        "cloud/agent-runtime-closure-x86_64-linux.json",
-        "cloud/agent-runtime-closure-aarch64-linux.json",
-        NIX_CACHE_DIR,
-    ]:
-        path = branch_dir / relative
+    for path in branch_dir.iterdir():
+        if path.name == ".git":
+            continue
         if path.is_dir():
             shutil.rmtree(path)
-        elif path.exists():
-            path.unlink()
-    for path in branch_dir.glob("cloud/*runtime-closure-*-linux.json"):
-        if path.is_file():
+        else:
             path.unlink()
 
 
@@ -746,8 +665,6 @@ def package_attrs(manifests: list[dict[str, Any]]) -> str:
             for group in HOST_GROUPS:
                 attr = host_group_package_attr(group["id"])
                 lines.append(f'  "{attr}" = (hostGroupPackages system pkgs)."{group["id"]}";')
-        if any(m["kind"] == "runtime" for m in by_system[system]):
-            lines.append("  remote-dev-kexec-installer = mkKexecInstallerPackage pkgs;")
         default = "remote-dev" if any(m["kind"] == "remote-dev" for m in by_system[system]) else "remote-dev-runtime"
         lines.append(f"  default = {default};")
         lines.append("}")
@@ -757,20 +674,11 @@ def package_attrs(manifests: list[dict[str, Any]]) -> str:
 
 def render_flake(repo_root: Path, branch_dir: Path, config: TargetConfig, manifests: list[dict[str, Any]], version: str) -> None:
     template = (repo_root / "templates/flake.nix.in").read_text()
-    spec_attrs = "\n".join(
-        f'          {arch} = "{HOST_IMAGE_SPEC_DIR}/{arch}.json";' for arch in config.host_arches
-    )
-    spec_values = "\n".join(
-        f"        {arch} = builtins.fromJSON (builtins.readFile ./{HOST_IMAGE_SPEC_DIR}/{arch}.json);"
-        for arch in config.host_arches
-    )
     rendered = (
         template.replace("__VERSION__", nix_string(version))
-        .replace("__HOST_IMAGE_SPEC_ATTRS__", spec_attrs)
-        .replace("__HOST_IMAGE_SPEC_VALUES__", spec_values)
         .replace("__PACKAGES__", package_attrs(manifests))
     )
-    unresolved = [token for token in ("__VERSION__", "__HOST_IMAGE_SPEC", "__PACKAGES__") if token in rendered]
+    unresolved = [token for token in ("__VERSION__", "__PACKAGES__") if token in rendered]
     if unresolved:
         raise Fail(f"rendered flake contains unresolved placeholders: {unresolved}")
     (branch_dir / "flake.nix").write_text(rendered)
@@ -779,306 +687,8 @@ def render_flake(repo_root: Path, branch_dir: Path, config: TargetConfig, manife
         shutil.copy2(lock_template, branch_dir / "flake.lock")
 
 
-def public_flake_ref(config: TargetConfig) -> str:
-    return f"github:{REPO}/{config.branch}"
-
-
-def read_nixpkgs_rev(branch_dir: Path, repo_root: Path) -> str:
-    for lock in (branch_dir / "flake.lock", repo_root / "templates/flake.lock"):
-        if not lock.is_file():
-            continue
-        try:
-            data = json_load(lock)
-            rev = data["nodes"]["nixpkgs"]["locked"]["rev"]
-            if isinstance(rev, str) and len(rev) == 40:
-                return rev
-        except (KeyError, TypeError, json.JSONDecodeError):
-            pass
-    return DEFAULT_NIXPKGS_REV
-
-
-def aws_ami_arch(arch: str) -> str:
-    if arch == "x86_64":
-        return "x86_64"
-    if arch == "aarch64":
-        return "arm64"
-    raise Fail(f"unsupported host arch {arch}")
-
-
-def aws_ami_host_arch_from_name(name_arch: str) -> str:
-    if name_arch == "x86_64":
-        return "x86_64"
-    if name_arch == "aarch64":
-        return "aarch64"
-    raise Fail(f"unsupported NixOS AMI name arch {name_arch}")
-
-
-def read_json_url(url: str) -> Any:
-    request = urllib.request.Request(url, headers={"User-Agent": "remote-dev-bin-publish"})
-    try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
-        raise Fail(f"fetch {url}: {error}") from error
-
-
-def read_aws_ami_index(images_json: str | None) -> Any:
-    if images_json:
-        return json_load(Path(images_json))
-    return read_json_url(AWS_AMI_INDEX_URL)
-
-
-def aws_ami_index_regions(index: Any) -> tuple[str, ...]:
-    if not isinstance(index, dict):
-        raise Fail("AWS AMI index must be a region object")
-    regions = sorted(
-        region
-        for region, payload in index.items()
-        if isinstance(region, str)
-        and isinstance(payload, dict)
-        and isinstance(payload.get("Images"), list)
-    )
-    if not regions:
-        raise Fail("AWS AMI index has no regions with Images")
-    return tuple(regions)
-
-
-def iter_aws_ami_pin_images(index: Any) -> list[AwsAmiPinImage]:
-    images: list[AwsAmiPinImage] = []
-    for region in aws_ami_index_regions(index):
-        for raw in index[region]["Images"]:
-            if not isinstance(raw, dict):
-                continue
-            name = raw.get("Name")
-            if not isinstance(name, str):
-                continue
-            match = NIXOS_AMI_NAME_RE.match(name)
-            if not match:
-                continue
-            rev_prefix, name_arch = match.groups()
-            host_arch = aws_ami_host_arch_from_name(name_arch)
-            if raw.get("Architecture") != aws_ami_arch(host_arch):
-                continue
-            if raw.get("State") != "available":
-                continue
-            if raw.get("RootDeviceName") != "/dev/xvda":
-                continue
-            image_id = raw.get("ImageId")
-            creation_date = raw.get("CreationDate")
-            if not isinstance(image_id, str) or not isinstance(creation_date, str):
-                continue
-            images.append(
-                AwsAmiPinImage(
-                    region=region,
-                    host_arch=host_arch,
-                    aws_arch=aws_ami_arch(host_arch),
-                    name=name,
-                    image_id=image_id,
-                    creation_date=creation_date,
-                    rev_prefix=rev_prefix,
-                )
-            )
-    if not images:
-        raise Fail("AWS AMI index has no parseable official NixOS AMI names")
-    return images
-
-
-def select_aws_ami_pin(index: Any, host_arches: tuple[str, ...]) -> AwsAmiPinSelection:
-    required_regions = set(aws_ami_index_regions(index))
-    required_arches = tuple(dict.fromkeys(host_arches))
-    by_prefix: dict[str, dict[str, dict[str, AwsAmiPinImage]]] = {}
-    for image in iter_aws_ami_pin_images(index):
-        if image.host_arch not in required_arches:
-            continue
-        region_images = by_prefix.setdefault(image.rev_prefix, {}).setdefault(image.host_arch, {})
-        existing = region_images.get(image.region)
-        if existing is None or image.creation_date > existing.creation_date:
-            region_images[image.region] = image
-
-    candidates: list[dict[str, Any]] = []
-    complete: list[tuple[str, dict[str, dict[str, AwsAmiPinImage]], str]] = []
-    for rev_prefix, by_arch in by_prefix.items():
-        missing_by_arch = {
-            arch: sorted(required_regions - set(by_arch.get(arch, {})))
-            for arch in required_arches
-        }
-        latest_creation_date = max(
-            (
-                image.creation_date
-                for region_images in by_arch.values()
-                for image in region_images.values()
-            ),
-            default="",
-        )
-        candidates.append(
-            {
-                "rev_prefix": rev_prefix,
-                "latest_creation_date": latest_creation_date,
-                "coverage": {
-                    arch: len(by_arch.get(arch, {}))
-                    for arch in required_arches
-                },
-                "missing_regions": missing_by_arch,
-            }
-        )
-        if all(not missing for missing in missing_by_arch.values()):
-            complete.append((rev_prefix, by_arch, latest_creation_date))
-
-    candidates.sort(key=lambda candidate: (candidate["latest_creation_date"], candidate["rev_prefix"]), reverse=True)
-    if not complete:
-        summary = json.dumps(candidates[:8], indent=2, sort_keys=True)
-        raise Fail(
-            "no official NixOS AWS AMI rev prefix has full region coverage for "
-            f"{', '.join(required_arches)} across {len(required_regions)} regions; "
-            f"top candidates:\n{summary}"
-        )
-
-    complete.sort(key=lambda item: (item[2], item[0]), reverse=True)
-    rev_prefix, by_arch, latest_creation_date = complete[0]
-    return AwsAmiPinSelection(
-        rev_prefix=rev_prefix,
-        latest_creation_date=latest_creation_date,
-        sample_names={
-            arch: sorted(by_arch[arch].values(), key=lambda image: image.creation_date, reverse=True)[0].name
-            for arch in required_arches
-        },
-        regions_by_arch={
-            arch: tuple(sorted(by_arch[arch]))
-            for arch in required_arches
-        },
-        images_by_arch=by_arch,
-        candidate_summary=candidates[:8],
-    )
-
-
-def resolve_nixpkgs_full_rev(rev_prefix: str) -> str:
-    if len(rev_prefix) != AWS_AMI_REV_PREFIX_LEN:
-        raise Fail(f"expected {AWS_AMI_REV_PREFIX_LEN} character AMI rev prefix, got {rev_prefix}")
-    url = f"https://api.github.com/repos/NixOS/nixpkgs/commits/{rev_prefix}"
-    data = read_json_url(url)
-    sha = data.get("sha") if isinstance(data, dict) else None
-    if not isinstance(sha, str) or len(sha) != 40 or not sha.startswith(rev_prefix):
-        raise Fail(f"GitHub did not resolve {rev_prefix} to a matching full nixpkgs commit")
-    return sha
-
-
 def is_full_commit_sha(value: str) -> bool:
     return len(value) == 40 and all(byte in "0123456789abcdefABCDEF" for byte in value)
-
-
-def nixpkgs_locked_metadata(full_rev: str) -> dict[str, Any]:
-    raw = run(
-        [
-            "nix",
-            "flake",
-            "metadata",
-            "--json",
-            "--extra-experimental-features",
-            "nix-command",
-            "--extra-experimental-features",
-            "flakes",
-            f"github:NixOS/nixpkgs/{full_rev}",
-        ],
-        capture=True,
-    )
-    try:
-        locked = json.loads(raw)["locked"]
-    except (KeyError, TypeError, json.JSONDecodeError) as error:
-        raise Fail(f"could not read nixpkgs lock metadata for {full_rev}: {error}") from error
-    expected = {
-        "lastModified": int,
-        "narHash": str,
-        "owner": str,
-        "repo": str,
-        "rev": str,
-        "type": str,
-    }
-    for key, kind in expected.items():
-        if not isinstance(locked.get(key), kind):
-            raise Fail(f"nixpkgs metadata for {full_rev} is missing {key}")
-    if locked["owner"] != "NixOS" or locked["repo"] != "nixpkgs" or locked["rev"] != full_rev:
-        raise Fail(f"nixpkgs metadata resolved unexpected repo/rev: {locked}")
-    return {key: locked[key] for key in expected}
-
-
-def update_template_nixpkgs_lock(repo_root: Path, full_rev: str) -> None:
-    lock_path = repo_root / "templates/flake.lock"
-    data = json_load(lock_path)
-    try:
-        data["nodes"]["nixpkgs"]["locked"] = nixpkgs_locked_metadata(full_rev)
-    except KeyError as error:
-        raise Fail(f"{lock_path}: missing nixpkgs lock node") from error
-    json_dump(lock_path, data)
-
-
-def aws_ami_pin_metadata(
-    config: TargetConfig, selection: AwsAmiPinSelection, full_rev: str,
-) -> dict[str, Any]:
-    return {
-        "schema_version": 1,
-        "source_url": AWS_AMI_INDEX_URL,
-        "target": config.name,
-        "target_branch": config.branch,
-        "host_arches": list(config.host_arches),
-        "aws_arches": {arch: aws_ami_arch(arch) for arch in config.host_arches},
-        "ami_names": selection.sample_names,
-        "rev_prefix": selection.rev_prefix,
-        "full_rev": full_rev,
-        "preferred_release_prefix": AWS_AMI_PREFERRED_RELEASE_PREFIX,
-        "latest_creation_date": selection.latest_creation_date,
-        "region_count": len(next(iter(selection.regions_by_arch.values()))),
-        "regions_by_arch": {
-            arch: list(regions)
-            for arch, regions in selection.regions_by_arch.items()
-        },
-        "candidate_summary": selection.candidate_summary,
-        "generated_at": utc_now(),
-    }
-
-
-def assert_aws_ami_pin_metadata(repo_root: Path) -> dict[str, Any]:
-    metadata_path = repo_root / AWS_AMI_PIN_METADATA
-    if not metadata_path.is_file():
-        raise Fail(f"missing AWS AMI pin metadata {AWS_AMI_PIN_METADATA}")
-    metadata = json_load(metadata_path)
-    full_rev = metadata.get("full_rev")
-    rev_prefix = metadata.get("rev_prefix")
-    preferred_release_prefix = metadata.get("preferred_release_prefix")
-    if not isinstance(full_rev, str) or not isinstance(rev_prefix, str):
-        raise Fail("AWS AMI pin metadata must include full_rev and rev_prefix")
-    if not is_full_commit_sha(full_rev):
-        raise Fail("AWS AMI pin metadata full_rev must be a full 40 character git SHA")
-    if len(rev_prefix) != AWS_AMI_REV_PREFIX_LEN or not full_rev.startswith(rev_prefix):
-        raise Fail("AWS AMI pin metadata rev_prefix must match full_rev")
-    if preferred_release_prefix != AWS_AMI_PREFERRED_RELEASE_PREFIX:
-        raise Fail(
-            "AWS AMI pin metadata preferred_release_prefix must be "
-            f"{AWS_AMI_PREFERRED_RELEASE_PREFIX!r}"
-        )
-    lock_rev = read_nixpkgs_rev(repo_root / "__missing_branch__", repo_root)
-    if lock_rev != full_rev:
-        raise Fail(
-            "templates/flake.lock nixpkgs rev does not match AWS AMI pin metadata: "
-            f"{lock_rev} != {full_rev}"
-        )
-    ami_names = metadata.get("ami_names")
-    if not isinstance(ami_names, dict) or not ami_names:
-        raise Fail("AWS AMI pin metadata must include ami_names")
-    for arch, name in ami_names.items():
-        if not isinstance(arch, str) or not isinstance(name, str):
-            raise Fail("AWS AMI pin metadata ami_names must map arch to name")
-        match = NIXOS_AMI_NAME_RE.match(name)
-        if not match or match.group(1) != rev_prefix:
-            raise Fail(f"AWS AMI pin metadata name {name!r} does not match rev prefix {rev_prefix}")
-    return metadata
-
-
-def pin_arch_selection(target: str, arch: str | None) -> str:
-    if arch:
-        return arch
-    if target == "host-service-test":
-        return "aarch64"
-    return "both"
 
 
 def placeholder_agent_runtime_store_path(system: str) -> str:
@@ -1124,7 +734,7 @@ def placeholder_host_groups_store_path(system: str, group_id: str) -> str:
 def agent_runtime_fingerprint(system: str, store_path: str) -> str:
     raw = json.dumps(
         {
-            "schema_version": HOST_IMAGE_SPEC_SCHEMA_VERSION,
+            "schema_version": 1,
             "system": system,
             "package_attr": agent_runtime_attr(system),
             "store_path": store_path,
@@ -1250,77 +860,6 @@ def write_host_groups_catalogs(
                 )
         catalogs[system] = {"file": catalog_file, "fingerprint": fingerprint}
     return catalogs
-
-
-def write_host_specs(
-    branch_dir: Path,
-    config: TargetConfig,
-    nixpkgs_rev: str,
-    trusted_public_key: str,
-    host_groups_catalogs: dict[str, dict[str, str]],
-    agent_runtimes: dict[str, str] | None = None,
-) -> None:
-    for arch in config.host_arches:
-        system = f"{arch}-linux"
-        agent_runtime_store_path = (agent_runtimes or {}).get(
-            system, placeholder_agent_runtime_store_path(system)
-        )
-        agent_runtime_closure_manifest = agent_runtime_closure_manifest_file(system)
-        host_groups_catalog = host_groups_catalogs[system]
-        catalog = json_load(branch_dir / host_groups_catalog["file"])
-        git_core_group = next(
-            (group for group in catalog.get("groups", []) if group.get("id") == "git-core"),
-            None,
-        )
-        if not isinstance(git_core_group, dict):
-            raise Fail(f"{host_groups_catalog['file']}: missing git-core group")
-        spec = {
-            "schema_version": HOST_IMAGE_SPEC_SCHEMA_VERSION,
-            "baseline_id": HOST_CONFIG_ID,
-            "image_contract_id": IMAGE_CONTRACT_ID,
-            "arch": arch,
-            "image_schema_version": HOST_IMAGE_SCHEMA_VERSION,
-            "firstboot_schema_version": FIRSTBOOT_SCHEMA_VERSION,
-            "disk_count": 1,
-            "host_module": "nixosModules.remote-dev-host",
-            "firstboot_module": "nixosModules.remote-dev-firstboot-register",
-            "aws_official_nixos_ami": {
-                "owner": "427812963091",
-                "name_pattern": "nixos/*",
-                "preferred_release_prefix": AWS_AMI_PREFERRED_RELEASE_PREFIX,
-                "arch": aws_ami_arch(arch),
-                "root_device_name": "/dev/xvda",
-            },
-            "bootstrap": {
-                "agent_runtime_attr": agent_runtime_attr(system),
-                "nixpkgs_rev": nixpkgs_rev,
-                "system": system,
-                "agent_runtime_store_path": agent_runtime_store_path,
-                "agent_runtime_closure_manifest_file": agent_runtime_closure_manifest,
-                "agent_runtime_fingerprint": agent_runtime_fingerprint(
-                    system, agent_runtime_store_path
-                ),
-                "host_groups_catalog_file": host_groups_catalog["file"],
-                "host_groups_catalog_fingerprint": host_groups_catalog["fingerprint"],
-                "git_core_group_store_path": git_core_group["store_path"],
-                "git_core_group_fingerprint": git_core_group["fingerprint"],
-            },
-            "nix_cache": {
-                "substituter_url": f"https://raw.githubusercontent.com/{REPO}/{config.branch}/{NIX_CACHE_DIR}",
-                "trusted_public_key": trusted_public_key,
-            },
-        }
-        json_dump(branch_dir / HOST_IMAGE_SPEC_DIR / f"{arch}.json", spec)
-        closure_path = branch_dir / agent_runtime_closure_manifest
-        if not closure_path.is_file():
-            closure = {
-                "schema_version": 1,
-                "system": system,
-                "agent_runtime_attr": agent_runtime_attr(system),
-                "agent_runtime_store_path": agent_runtime_store_path,
-                "paths": [agent_runtime_store_path],
-            }
-            json_dump(closure_path, closure)
 
 
 def write_nix_cache_info(branch_dir: Path, trusted_public_key: str) -> None:
@@ -1800,107 +1339,6 @@ def store_path_name(path: str) -> str:
     return name
 
 
-def is_placeholder_store_path(path: str) -> bool:
-    return store_path_name(path).split("-", 1)[0] == "0" * 32
-
-
-def closure_cache_path_refs(label: str, closure: dict[str, Any]) -> list[CachePathRef]:
-    if "paths" not in closure:
-        raise Fail(f"{label}: missing paths")
-    return [
-        CachePathRef(f"{label}: paths", path, info, False)
-        for path, info in iter_nix_path_info(closure["paths"])
-    ]
-
-
-def collect_branch_cache_path_refs(branch_dir: Path, config: TargetConfig) -> list[CachePathRef]:
-    refs: list[CachePathRef] = []
-    for arch in config.host_arches:
-        system = f"{arch}-linux"
-        spec_path = branch_dir / HOST_IMAGE_SPEC_DIR / f"{arch}.json"
-        if not spec_path.is_file():
-            raise Fail(f"missing host runtime spec {spec_path.relative_to(branch_dir)}")
-        spec = json_load(spec_path)
-        bootstrap = spec.get("bootstrap")
-        if not isinstance(bootstrap, dict):
-            raise Fail(f"{spec_path}: bootstrap must be an object")
-
-        agent_runtime_store_path = bootstrap.get("agent_runtime_store_path")
-        if not isinstance(agent_runtime_store_path, str):
-            raise Fail(f"{spec_path}: bootstrap.agent_runtime_store_path is missing")
-        refs.append(
-            CachePathRef(
-                f"{spec_path.relative_to(branch_dir)}: bootstrap.agent_runtime_store_path",
-                agent_runtime_store_path,
-                None,
-                True,
-            )
-        )
-
-        agent_closure_file = bootstrap.get("agent_runtime_closure_manifest_file")
-        if not isinstance(agent_closure_file, str) or not agent_closure_file:
-            raise Fail(f"{spec_path}: bootstrap.agent_runtime_closure_manifest_file is missing")
-        agent_closure_path = branch_dir / agent_closure_file
-        if not agent_closure_path.is_file():
-            raise Fail(f"{spec_path}: agent runtime closure manifest is missing")
-        refs.extend(
-            closure_cache_path_refs(
-                str(Path(agent_closure_file)),
-                json_load(agent_closure_path),
-            )
-        )
-
-        catalog_file = bootstrap.get("host_groups_catalog_file")
-        if catalog_file != host_groups_catalog_file(system):
-            raise Fail(f"{spec_path}: host groups catalog file mismatch")
-        catalog_path = branch_dir / catalog_file
-        if not catalog_path.is_file():
-            raise Fail(f"{spec_path}: host groups catalog is missing")
-        catalog = json_load(catalog_path)
-        groups = catalog.get("groups")
-        if not isinstance(groups, list) or not groups:
-            raise Fail(f"{catalog_file}: groups must be a non-empty list")
-        for group in groups:
-            if not isinstance(group, dict):
-                raise Fail(f"{catalog_file}: host groups group must be an object")
-            group_id = group.get("id")
-            if not isinstance(group_id, str) or not group_id:
-                raise Fail(f"{catalog_file}: host groups group is missing id")
-            store_path = group.get("store_path")
-            if not isinstance(store_path, str):
-                raise Fail(f"{catalog_file}: group {group_id} store_path must be a string")
-            refs.append(
-                CachePathRef(
-                    f"{catalog_file}: group {group_id} store_path",
-                    store_path,
-                    None,
-                    True,
-                )
-            )
-            closure_manifest_file = group.get("closure_manifest_file")
-            if closure_manifest_file != host_groups_closure_manifest_file(group_id, system):
-                raise Fail(f"{catalog_file}: group {group_id} closure manifest mismatch")
-            closure_manifest_path = branch_dir / closure_manifest_file
-            if not closure_manifest_path.is_file():
-                raise Fail(f"{catalog_file}: group {group_id} closure manifest is missing")
-            refs.extend(
-                closure_cache_path_refs(
-                    str(Path(closure_manifest_file)),
-                    json_load(closure_manifest_path),
-                )
-            )
-    return refs
-
-
-def cache_ref_needs_local_narinfo(ref: CachePathRef) -> bool:
-    store_path_name(ref.path)
-    if is_placeholder_store_path(ref.path):
-        return False
-    if ref.local_required:
-        return True
-    return ref.info is None or not cache_nixos_signed_path(ref.info)
-
-
 def parse_narinfo_fields(text: str, label: str) -> dict[str, str]:
     fields: dict[str, str] = {}
     for line in text.splitlines():
@@ -1929,60 +1367,6 @@ def require_narinfo_relative_url(fields: dict[str, str], label: str) -> str:
     if not parts or parts[0] != "nar" or ".." in parts:
         raise Fail(f"{label}: narinfo URL must stay under nar/, got {url}")
     return url
-
-
-def required_remote_cache_entries(branch_dir: Path, config: TargetConfig) -> list[RemoteCacheEntry]:
-    cache_dir = branch_dir / NIX_CACHE_DIR
-    entries: dict[str, RemoteCacheEntry] = {}
-    missing: list[str] = []
-    for ref in collect_branch_cache_path_refs(branch_dir, config):
-        if not cache_ref_needs_local_narinfo(ref):
-            continue
-        info_path = narinfo_path(cache_dir, ref.path)
-        if not info_path.is_file():
-            missing.append(f"{ref.label} {ref.path}")
-            continue
-        text = info_path.read_text()
-        fields = parse_narinfo_fields(text, str(info_path.relative_to(branch_dir)))
-        if fields.get("StorePath") != ref.path:
-            raise Fail(
-                f"{info_path.relative_to(branch_dir)}: StorePath {fields.get('StorePath')!r} "
-                f"does not match required path {ref.path}"
-            )
-        nar_relative = require_narinfo_relative_url(
-            fields,
-            str(info_path.relative_to(branch_dir)),
-        )
-        nar_path = cache_dir / nar_relative
-        if not nar_path.is_file():
-            raise Fail(
-                f"{info_path.relative_to(branch_dir)}: referenced Nar file is missing: "
-                f"{Path(NIX_CACHE_DIR) / nar_relative}"
-            )
-        entry = RemoteCacheEntry(
-            label=ref.label,
-            store_path=ref.path,
-            narinfo_path=info_path,
-            narinfo_relative=str(Path(NIX_CACHE_DIR) / info_path.name),
-            nar_relative=nar_relative,
-        )
-        previous = entries.get(ref.path)
-        if previous is not None:
-            if previous.narinfo_relative != entry.narinfo_relative or previous.nar_relative != entry.nar_relative:
-                raise Fail(f"{ref.path}: cache metadata is inconsistent across references")
-            continue
-        entries[ref.path] = entry
-    if missing:
-        raise Fail("required branch cache paths are missing generated narinfo: " + ", ".join(missing))
-    return sorted(entries.values(), key=lambda entry: entry.store_path)
-
-
-def validate_cached_store_path(branch_dir: Path, label: str, path: str) -> None:
-    store_path_name(path)
-    if is_placeholder_store_path(path):
-        return
-    if not narinfo_path(branch_dir / NIX_CACHE_DIR, path).is_file():
-        raise Fail(f"{label} {path} is missing from generated Nix cache")
 
 
 def raw_github_artifact_url(artifact_sha: str, relative: str) -> str:
@@ -2026,50 +1410,6 @@ def fetch_remote_bytes(
     raise Fail(f"{label}: fetch {url}: {last_error}")
 
 
-def verify_remote_cache_entry(
-    artifact_sha: str,
-    branch_dir: Path,
-    entry: RemoteCacheEntry,
-    attempts: int,
-    sleep_secs: float,
-) -> None:
-    narinfo_url = raw_github_artifact_url(artifact_sha, entry.narinfo_relative)
-    remote_text = fetch_remote_bytes(
-        narinfo_url,
-        entry.narinfo_relative,
-        REMOTE_CACHE_NARINFO_MAX_BYTES,
-        attempts,
-        sleep_secs,
-    ).decode("utf-8")
-    local_text = entry.narinfo_path.read_text()
-    if remote_text != local_text:
-        raise Fail(f"{entry.narinfo_relative}: remote narinfo content does not match generated tree")
-    fields = parse_narinfo_fields(remote_text, entry.narinfo_relative)
-    if fields.get("StorePath") != entry.store_path:
-        raise Fail(f"{entry.narinfo_relative}: remote StorePath does not match {entry.store_path}")
-    nar_relative = require_narinfo_relative_url(fields, entry.narinfo_relative)
-    if nar_relative != entry.nar_relative:
-        raise Fail(f"{entry.narinfo_relative}: remote Nar URL does not match generated tree")
-    local_nar = branch_dir / NIX_CACHE_DIR / entry.nar_relative
-    if not local_nar.is_file():
-        raise Fail(f"{entry.narinfo_relative}: local Nar file is missing before remote verification")
-    nar_label = str(Path(NIX_CACHE_DIR) / entry.nar_relative)
-    nar_url = raw_github_artifact_url(artifact_sha, nar_label)
-    try:
-        fetch_remote_bytes(nar_url, nar_label, 0, attempts, sleep_secs, method="HEAD")
-    except Fail as error:
-        if "HTTP Error 405" not in str(error):
-            raise
-        fetch_remote_bytes(
-            nar_url,
-            nar_label,
-            1,
-            attempts,
-            sleep_secs,
-            headers={"Range": "bytes=0-0"},
-        )
-
-
 def write_cloud_image_metadata(
     branch_dir: Path,
     args: argparse.Namespace,
@@ -2105,6 +1445,267 @@ def write_cloud_image_metadata(
     json_dump(branch_dir / "cloud/host-service-image.json", metadata)
 
 
+def safe_extract_regular_tar(archive: Path, destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive, "r:gz") as source:
+        for member in source.getmembers():
+            relative = PurePosixPath(member.name)
+            if relative.is_absolute() or any(part in ("", ".", "..") for part in relative.parts):
+                raise Fail(f"{archive}: unsafe tar path {member.name!r}")
+            target = destination.joinpath(*relative.parts)
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            if not member.isfile():
+                raise Fail(f"{archive}: unsupported tar entry type for {member.name!r}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            extracted = source.extractfile(member)
+            if extracted is None:
+                raise Fail(f"{archive}: failed to read {member.name!r}")
+            with target.open("wb") as output:
+                shutil.copyfileobj(extracted, output)
+            target.chmod(member.mode & 0o777)
+
+
+def write_regular_tar(source_dir: Path, archive: Path) -> None:
+    archive.parent.mkdir(parents=True, exist_ok=True)
+
+    def normalize(info: tarfile.TarInfo) -> tarfile.TarInfo:
+        if not (info.isfile() or info.isdir()):
+            raise Fail(f"bundle source contains unsupported entry type: {info.name}")
+        info.uid = 0
+        info.gid = 0
+        info.uname = "root"
+        info.gname = "root"
+        info.mtime = 0
+        return info
+
+    with tarfile.open(archive, "w:gz", format=tarfile.PAX_FORMAT) as output:
+        for path in sorted(source_dir.rglob("*")):
+            output.add(path, arcname=path.relative_to(source_dir).as_posix(), recursive=False, filter=normalize)
+    if archive.stat().st_size >= GITHUB_MAX_BLOB_BYTES:
+        raise Fail(
+            f"{archive.name} is {archive.stat().st_size} bytes; every published blob must be < "
+            f"{GITHUB_MAX_BLOB_BYTES} bytes"
+        )
+
+
+def cli_bundle_flake(system: str) -> str:
+    return f'''{{
+  description = "remote-dev immutable {system} CLI bundle";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.flake-utils.url = "github:numtide/flake-utils";
+  inputs.disko.url = "github:nix-community/disko";
+  inputs.disko.inputs.nixpkgs.follows = "nixpkgs";
+  outputs = {{ self, nixpkgs, flake-utils, disko }}:
+    let
+      system = "{system}";
+      pkgs = nixpkgs.legacyPackages.${{system}};
+      package = pkgs.stdenvNoCC.mkDerivation {{
+        pname = "remote-dev";
+        version = "bundle";
+        src = ./.;
+        dontUnpack = true;
+        installPhase = ''
+          install -Dm755 $src/bin/remote-dev $out/bin/remote-dev
+        '';
+      }};
+    in {{
+      packages.${{system}} = {{
+        default = package;
+        remote-dev = package;
+      }};
+      apps.${{system}}.default = {{ type = "app"; program = "${{package}}/bin/remote-dev"; }};
+    }};
+}}
+'''
+
+
+def package_cli_bundles(
+    repo_root: Path, branch_dir: Path, manifests: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    published: list[dict[str, Any]] = []
+    for manifest in manifests:
+        if manifest["kind"] != "remote-dev":
+            continue
+        artifact = manifest["artifact"]
+        archive = branch_dir / ARTIFACT_DIR / f"{artifact}.tar.gz"
+        with tempfile.TemporaryDirectory(prefix=f"{artifact}-") as raw_temp:
+            temp = Path(raw_temp)
+            extracted = temp / "extracted"
+            bundle = temp / "bundle"
+            safe_extract_regular_tar(archive, extracted)
+            binaries = [path for path in extracted.rglob("remote-dev") if path.is_file()]
+            if len(binaries) != 1:
+                raise Fail(f"{archive.name}: expected exactly one remote-dev binary, got {len(binaries)}")
+            (bundle / "bin").mkdir(parents=True)
+            shutil.copy2(binaries[0], bundle / "bin/remote-dev")
+            (bundle / "bin/remote-dev").chmod(0o755)
+            (bundle / "flake.nix").write_text(cli_bundle_flake(manifest["system"]))
+            shutil.copy2(repo_root / "templates/flake.lock", bundle / "flake.lock")
+            write_regular_tar(bundle, archive)
+        digest = sha256_file(archive)
+        sha_path = Path(f"{archive}.sha256")
+        sha_path.write_text(f"{digest}  {archive.name}\n")
+        public = dict(manifest)
+        public.update(
+            {
+                "schema_version": 2,
+                "kind": "cli-bundle",
+                "tarball": f"{ARTIFACT_DIR}/{archive.name}",
+                "sha256": digest,
+                "bundle_files": ["flake.nix", "flake.lock", "bin/remote-dev"],
+            }
+        )
+        json_dump(branch_dir / ARTIFACT_DIR / f"{artifact}.build.json", public)
+        published.append(public)
+    return published
+
+
+def copy_bundle_cache(branch_dir: Path, bundle_dir: Path, closure_files: list[str]) -> None:
+    source_cache = branch_dir / NIX_CACHE_DIR
+    target_cache = bundle_dir / NIX_CACHE_DIR
+    target_cache.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_cache / "nix-cache-info", target_cache / "nix-cache-info")
+    copied_nars: set[str] = set()
+    for closure_file in closure_files:
+        closure = json_load(branch_dir / closure_file)
+        for store_path, _ in iter_nix_path_info(closure.get("paths")):
+            source_narinfo = narinfo_path(source_cache, store_path)
+            if not source_narinfo.is_file():
+                continue
+            target_narinfo = target_cache / source_narinfo.name
+            shutil.copy2(source_narinfo, target_narinfo)
+            fields = parse_narinfo_fields(source_narinfo.read_text(), str(source_narinfo))
+            nar_relative = require_narinfo_relative_url(fields, str(source_narinfo))
+            if nar_relative in copied_nars:
+                continue
+            source_nar = source_cache / nar_relative
+            if not source_nar.is_file():
+                raise Fail(f"{source_narinfo}: referenced NAR is missing: {nar_relative}")
+            target_nar = target_cache / nar_relative
+            target_nar.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_nar, target_nar)
+            copied_nars.add(nar_relative)
+
+
+def package_host_bundles(
+    artifacts_dir: Path,
+    branch_dir: Path,
+    config: TargetConfig,
+    source_ref: str,
+    source_sha: str,
+    trusted_key: str,
+    agent_runtimes: dict[str, str],
+    host_groups_catalogs: dict[str, dict[str, str]],
+) -> list[dict[str, Any]]:
+    resources = {
+        "bootstrap/run": artifacts_dir / "provider-bootstrap-run",
+        "bootstrap/host-inspect.sh": artifacts_dir / "host-inspect.sh",
+        "bootstrap/leasectl.sh": artifacts_dir / "leasectl.sh",
+    }
+    missing = [str(path) for path in resources.values() if not path.is_file()]
+    if missing:
+        raise Fail(f"host bundle resources are missing: {', '.join(missing)}")
+    published: list[dict[str, Any]] = []
+    for arch in config.host_arches:
+        system = f"{arch}-linux"
+        agent_runtime_store_path = agent_runtimes.get(
+            system, placeholder_agent_runtime_store_path(system)
+        )
+        catalog_meta = host_groups_catalogs[system]
+        catalog = json_load(branch_dir / catalog_meta["file"])
+        git_core = next(
+            (group for group in catalog["groups"] if group.get("id") == "git-core"), None
+        )
+        if not isinstance(git_core, dict):
+            raise Fail(f"{catalog_meta['file']}: missing git-core group")
+        closure_files = [agent_runtime_closure_manifest_file(system)] + [
+            group["closure_manifest_file"] for group in catalog["groups"]
+        ]
+        artifact = f"remote-dev-host-{system}"
+        archive = branch_dir / ARTIFACT_DIR / f"{artifact}.tar.gz"
+        with tempfile.TemporaryDirectory(prefix=f"{artifact}-") as raw_temp:
+            bundle = Path(raw_temp) / "bundle"
+            bundle.mkdir(parents=True)
+            for relative, source in resources.items():
+                target = bundle / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+                target.chmod(0o755 if relative == "bootstrap/run" else 0o700)
+            for relative in closure_files + [catalog_meta["file"]]:
+                target = bundle / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(branch_dir / relative, target)
+            copy_bundle_cache(branch_dir, bundle, closure_files)
+            bundle_manifest = {
+                "bundle_schema_version": HOST_BUNDLE_SCHEMA_VERSION,
+                "firstboot_schema_version": FIRSTBOOT_SCHEMA_VERSION,
+                "source_repo": SOURCE_REPO,
+                "source_ref": source_ref,
+                "source_sha": source_sha,
+                "system": system,
+                "arch": arch,
+                "nix_trusted_public_key": trusted_key,
+                "agent_runtime_store_path": agent_runtime_store_path,
+                "agent_runtime_fingerprint": agent_runtime_fingerprint(
+                    system, agent_runtime_store_path
+                ),
+                "agent_runtime_closure_manifest_file": agent_runtime_closure_manifest_file(system),
+                "host_groups_catalog_file": catalog_meta["file"],
+                "host_groups_catalog_fingerprint": catalog_meta["fingerprint"],
+                "git_core_group_store_path": git_core["store_path"],
+                "git_core_group_fingerprint": git_core["fingerprint"],
+            }
+            json_dump(bundle / "manifest.json", bundle_manifest)
+            write_regular_tar(bundle, archive)
+        digest = sha256_file(archive)
+        Path(f"{archive}.sha256").write_text(f"{digest}  {archive.name}\n")
+        public = {
+            "schema_version": 1,
+            "kind": "host-bundle",
+            "target": config.name,
+            "source_repo": SOURCE_REPO,
+            "source_ref": source_ref,
+            "source_sha": source_sha,
+            "system": system,
+            "arch": arch,
+            "artifact": artifact,
+            "tarball": f"{ARTIFACT_DIR}/{archive.name}",
+            "sha256": digest,
+            "bundle_schema_version": HOST_BUNDLE_SCHEMA_VERSION,
+            "firstboot_schema_version": FIRSTBOOT_SCHEMA_VERSION,
+        }
+        json_dump(branch_dir / ARTIFACT_DIR / f"{artifact}.build.json", public)
+        published.append(public)
+    return published
+
+
+def remove_bundle_staging_tree(branch_dir: Path, copied: list[dict[str, Any]]) -> None:
+    for manifest in copied:
+        if manifest["kind"] == "runtime":
+            artifact = manifest["artifact"]
+            for suffix in (".tar.gz", ".tar.gz.sha256", ".build.json"):
+                path = branch_dir / ARTIFACT_DIR / f"{artifact}{suffix}"
+                if path.exists():
+                    path.unlink()
+    for relative in ("flake.nix", "flake.lock", NIX_CACHE_DIR):
+        path = branch_dir / relative
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
+    cloud = branch_dir / "cloud"
+    if cloud.is_dir():
+        for path in list(cloud.iterdir()):
+            if path.name == "host-service-image.json":
+                continue
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+
+
 def cmd_render_tree(args: argparse.Namespace) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     artifacts_dir = Path(args.artifacts_dir).resolve()
@@ -2131,20 +1732,26 @@ def cmd_render_tree(args: argparse.Namespace) -> None:
     trusted_key = args.nix_cache_public_key or "remote-dev-placeholder:public"
     version = args.version or version_string(config, args.source_sha, args.source_ref)
     render_flake(repo_root, branch_dir, config, copied, version)
-    nixpkgs_rev = read_nixpkgs_rev(branch_dir, repo_root)
     write_nix_cache_info(branch_dir, trusted_key)
     agent_runtimes, group_roots = maybe_realize_runtime_and_cache(
         branch_dir, config, args.nix_cache_signing_key_file, trusted_key
     )
     host_groups_catalogs = write_host_groups_catalogs(branch_dir, config, group_roots)
-    write_host_specs(
-        branch_dir,
-        config,
-        nixpkgs_rev,
-        trusted_key,
-        host_groups_catalogs,
-        agent_runtimes,
-    )
+    for arch in config.host_arches:
+        system = f"{arch}-linux"
+        closure_path = branch_dir / agent_runtime_closure_manifest_file(system)
+        if not closure_path.is_file():
+            store_path = agent_runtimes.get(system, placeholder_agent_runtime_store_path(system))
+            json_dump(
+                closure_path,
+                {
+                    "schema_version": 1,
+                    "system": system,
+                    "agent_runtime_attr": agent_runtime_attr(system),
+                    "agent_runtime_store_path": store_path,
+                    "paths": [store_path],
+                },
+            )
     closure_audits = (
         audit_runtime_closures(branch_dir, config)
         if args.nix_cache_signing_key_file
@@ -2153,6 +1760,21 @@ def cmd_render_tree(args: argparse.Namespace) -> None:
     write_cloud_image_metadata(
         branch_dir, args, config, image_manifests[0] if image_manifests else None
     )
+    cli_bundles = package_cli_bundles(repo_root, branch_dir, copied)
+    host_bundles = package_host_bundles(
+        artifacts_dir,
+        branch_dir,
+        config,
+        args.source_ref,
+        args.source_sha,
+        trusted_key,
+        agent_runtimes,
+        host_groups_catalogs,
+    )
+    published_artifacts = sorted(
+        cli_bundles + host_bundles, key=lambda artifact: artifact["artifact"]
+    )
+    remove_bundle_staging_tree(branch_dir, copied)
 
     aggregate = {
         "schema_version": 1,
@@ -2169,10 +1791,7 @@ def cmd_render_tree(args: argparse.Namespace) -> None:
         },
         "remote_dev_systems": list(config.remote_dev_systems),
         "host_arches": list(config.host_arches),
-        "host_groups_catalogs": {
-            system: catalog["file"] for system, catalog in sorted(host_groups_catalogs.items())
-        },
-        "artifacts": copied,
+        "artifacts": published_artifacts,
         "host_service_image": "cloud/host-service-image.json"
         if (branch_dir / "cloud/host-service-image.json").is_file()
         else None,
@@ -2188,176 +1807,119 @@ def cmd_render_tree(args: argparse.Namespace) -> None:
 
 
 def validate_tree(branch_dir: Path, config: TargetConfig) -> None:
-    validate_host_group_model()
-    for relative in [
-        "build-manifest.json",
-        "flake.nix",
-        "flake.lock",
-        f"{NIX_CACHE_DIR}/nix-cache-info",
-    ]:
-        if not (branch_dir / relative).is_file():
-            raise Fail(f"missing required branch artifact {relative}")
-    for stale in [
-        AWS_BOOTSTRAP_FLAKE,
-        AWS_BOOTSTRAP_LOCK,
-        "cloud/aws-bootstrap-closure-x86_64-linux.json",
-        "cloud/aws-bootstrap-closure-aarch64-linux.json",
-    ]:
-        if (branch_dir / stale).exists():
-            raise Fail(f"stale bootstrap artifact must not be rendered: {stale}")
-    flake = (branch_dir / "flake.nix").read_text()
-    if "releases/download" in flake or "fetchurl" in flake:
-        raise Fail("flake.nix must consume repo-local artifacts, not GitHub Release URLs")
-    manifest = json_load(branch_dir / "build-manifest.json")
-    if manifest["target"]["branch"] != config.branch:
-        raise Fail("build-manifest target branch mismatch")
-    for artifact in manifest["artifacts"]:
-        tarball = branch_dir / artifact["tarball"]
-        if not tarball.is_file():
-            raise Fail(f"missing artifact {artifact['tarball']}")
-        actual = sha256_file(tarball)
-        if actual != artifact["sha256"]:
-            raise Fail(f"{artifact['tarball']}: sha256 mismatch")
-        for suffix in (".sha256", ".build.json"):
-            expected = branch_dir / ARTIFACT_DIR / f"{artifact['artifact']}.tar.gz{suffix}"
-            if suffix == ".build.json":
-                expected = branch_dir / ARTIFACT_DIR / f"{artifact['artifact']}.build.json"
-            if not expected.is_file():
-                raise Fail(f"missing artifact sidecar {expected.relative_to(branch_dir)}")
-    for arch in config.host_arches:
-        system = f"{arch}-linux"
-        spec_path = branch_dir / HOST_IMAGE_SPEC_DIR / f"{arch}.json"
-        if not spec_path.is_file():
-            raise Fail(f"missing host runtime spec {spec_path.relative_to(branch_dir)}")
-        spec = json_load(spec_path)
-        if spec.get("arch") != arch:
-            raise Fail(f"{spec_path}: arch mismatch")
-        if spec.get("schema_version") != HOST_IMAGE_SPEC_SCHEMA_VERSION:
-            raise Fail(f"{spec_path}: schema_version mismatch")
-        closure = branch_dir / spec["bootstrap"]["agent_runtime_closure_manifest_file"]
-        if not closure.is_file():
-            raise Fail(f"{spec_path}: closure manifest is missing")
-        closure_manifest = json_load(closure)
-        agent_runtime_store_path = spec["bootstrap"].get("agent_runtime_store_path")
-        if not isinstance(agent_runtime_store_path, str):
-            raise Fail(f"{spec_path}: bootstrap.agent_runtime_store_path is missing")
-        if closure_manifest.get("agent_runtime_store_path") != agent_runtime_store_path:
-            raise Fail(f"{closure.relative_to(branch_dir)}: agent_runtime_store_path mismatch")
-        aws_ami = spec.get("aws_official_nixos_ami")
-        if not isinstance(aws_ami, dict):
-            raise Fail(f"{spec_path}: aws_official_nixos_ami is missing")
-        if aws_ami.get("preferred_release_prefix") != AWS_AMI_PREFERRED_RELEASE_PREFIX:
-            raise Fail(
-                f"{spec_path}: aws_official_nixos_ami.preferred_release_prefix must be "
-                f"{AWS_AMI_PREFERRED_RELEASE_PREFIX!r}"
-            )
-        validate_cached_store_path(
-            branch_dir, f"{spec_path}: agent_runtime_store_path", agent_runtime_store_path
+    expected_root = {"build-manifest.json", ARTIFACT_DIR, "cloud"}
+    actual_root = {path.name for path in branch_dir.iterdir() if path.name != ".git"}
+    if actual_root != expected_root:
+        raise Fail(
+            f"artifact commit root mismatch: expected={sorted(expected_root)}, "
+            f"actual={sorted(actual_root)}"
         )
-        expected_agent_fingerprint = agent_runtime_fingerprint(system, agent_runtime_store_path)
-        if spec["bootstrap"].get("agent_runtime_fingerprint") != expected_agent_fingerprint:
-            raise Fail(f"{spec_path}: agent runtime fingerprint mismatch")
-        catalog_file = spec["bootstrap"].get("host_groups_catalog_file")
-        catalog_fingerprint = spec["bootstrap"].get("host_groups_catalog_fingerprint")
-        expected_catalog_file = host_groups_catalog_file(system)
-        if catalog_file != expected_catalog_file:
-            raise Fail(f"{spec_path}: host groups catalog file mismatch")
-        catalog_path = branch_dir / catalog_file
-        if not catalog_path.is_file():
-            raise Fail(f"{spec_path}: host groups catalog is missing")
-        catalog = json_load(catalog_path)
-        groups = catalog.get("groups")
-        contracts = catalog.get("contracts")
-        if catalog.get("schema_version") != HOST_GROUPS_CATALOG_SCHEMA_VERSION:
-            raise Fail(f"{catalog_file}: schema_version mismatch")
-        if catalog.get("system") != system:
-            raise Fail(f"{catalog_file}: system mismatch")
-        if not isinstance(groups, list) or not groups:
-            raise Fail(f"{catalog_file}: groups must be a non-empty list")
-        expected_contracts = host_groups_catalog_contracts(system, groups)
-        if contracts != expected_contracts:
-            raise Fail(f"{catalog_file}: default shell contract mismatch")
-        if catalog.get("fingerprint") != catalog_fingerprint:
-            raise Fail(f"{spec_path}: host groups catalog fingerprint mismatch")
-        expected_fingerprint = host_groups_catalog_fingerprint(system, contracts, groups)
-        if catalog_fingerprint != expected_fingerprint:
-            raise Fail(f"{catalog_file}: fingerprint does not match catalog content")
-        expected_group_specs = {group["id"]: group for group in HOST_GROUPS}
-        seen_groups: set[str] = set()
-        seen_commands: set[str] = set()
-        for group in groups:
-            if not isinstance(group, dict):
-                raise Fail(f"{catalog_file}: host groups group must be an object")
-            group_id = group.get("id")
-            if not isinstance(group_id, str) or not group_id:
-                raise Fail(f"{catalog_file}: host groups group is missing id")
-            if group_id in seen_groups:
-                raise Fail(f"{catalog_file}: duplicate host groups group {group_id}")
-            seen_groups.add(group_id)
-            if group_id not in expected_group_specs:
-                raise Fail(f"{catalog_file}: unexpected host groups group {group_id}")
-            if group_id == "git-core":
-                if spec["bootstrap"].get("git_core_group_store_path") != group.get("store_path"):
-                    raise Fail(f"{spec_path}: git-core store path does not match catalog")
-                if spec["bootstrap"].get("git_core_group_fingerprint") != group.get("fingerprint"):
-                    raise Fail(f"{spec_path}: git-core fingerprint does not match catalog")
-                validate_cached_store_path(
-                    branch_dir,
-                    f"{spec_path}: git_core_group_store_path",
-                    group["store_path"],
-                )
-            if "scope" in group or "policy" in group:
-                raise Fail(f"{catalog_file}: group {group_id} must not include shell scope or policy")
-            priority = group.get("priority")
-            if not isinstance(priority, int) or priority < 0:
-                raise Fail(f"{catalog_file}: group {group_id} priority must be a non-negative integer")
-            if "installable" in group:
-                raise Fail(f"{catalog_file}: group {group_id} must not include installable")
-            store_path = group.get("store_path")
-            if not isinstance(store_path, str) or not store_path.startswith("/nix/store/"):
-                raise Fail(f"{catalog_file}: group {group_id} store_path must be a /nix/store path")
-            closure_manifest_file = group.get("closure_manifest_file")
-            if closure_manifest_file != host_groups_closure_manifest_file(group_id, system):
-                raise Fail(f"{catalog_file}: group {group_id} closure manifest mismatch")
-            closure_manifest_path = branch_dir / closure_manifest_file
-            if not closure_manifest_path.is_file():
-                raise Fail(f"{catalog_file}: group {group_id} closure manifest is missing")
-            closure_manifest = json_load(closure_manifest_path)
-            if "installable" in closure_manifest:
-                raise Fail(f"{closure_manifest_file}: must not include installable")
-            if closure_manifest.get("package_attr") != host_group_attr(system, group_id):
-                raise Fail(f"{closure_manifest_file}: package_attr mismatch")
-            if closure_manifest.get("store_path") != store_path:
-                raise Fail(f"{closure_manifest_file}: store_path mismatch")
-            commands = group.get("commands")
-            if not isinstance(commands, list):
-                raise Fail(f"{catalog_file}: group {group_id} commands must be a list")
-            expected_commands = [host_group_command(command) for command in expected_group_specs[group_id]["commands"]]
-            if commands != expected_commands:
-                raise Fail(f"{catalog_file}: group {group_id} commands mismatch")
-            for command_entry in commands:
-                command = command_entry.get("command") if isinstance(command_entry, dict) else None
-                relative_path = command_entry.get("relative_path") if isinstance(command_entry, dict) else None
-                if not isinstance(command, str) or not command:
-                    raise Fail(f"{catalog_file}: group {group_id} has invalid command")
-                if not isinstance(relative_path, str) or not relative_path or relative_path.startswith("/"):
-                    raise Fail(f"{catalog_file}: group {group_id} command {command} has invalid relative_path")
-                if ".." in Path(relative_path).parts:
-                    raise Fail(f"{catalog_file}: group {group_id} command {command} relative_path escapes bundle")
-                if command in seen_commands:
-                    raise Fail(f"{catalog_file}: duplicate host groups command {command}")
-                seen_commands.add(command)
-        expected_groups = {group["id"] for group in HOST_GROUPS}
-        if seen_groups != expected_groups:
-            raise Fail(f"{catalog_file}: host groups groups mismatch")
-    missing_arches = {"x86_64", "aarch64"} - set(config.host_arches)
-    for arch in missing_arches:
-        if (branch_dir / HOST_IMAGE_SPEC_DIR / f"{arch}.json").exists():
-            raise Fail(f"unexpected host runtime spec for unbuilt arch {arch}")
-        system = f"{arch}-linux"
-        if (branch_dir / host_groups_catalog_file(system)).exists():
-            raise Fail(f"unexpected host groups catalog for unbuilt arch {arch}")
-    required_remote_cache_entries(branch_dir, config)
+    cloud_files = {
+        path.relative_to(branch_dir / "cloud").as_posix()
+        for path in (branch_dir / "cloud").rglob("*")
+        if path.is_file()
+    }
+    if cloud_files != {"host-service-image.json"}:
+        raise Fail(f"cloud artifact surface mismatch: {sorted(cloud_files)}")
+    manifest = json_load(branch_dir / "build-manifest.json")
+    if manifest.get("schema_version") != 1:
+        raise Fail("build-manifest schema_version mismatch")
+    if manifest.get("target", {}).get("branch") != config.branch:
+        raise Fail("build-manifest target branch mismatch")
+    source_sha = manifest.get("source", {}).get("sha")
+    if not isinstance(source_sha, str) or not is_full_commit_sha(source_sha):
+        raise Fail("build-manifest source SHA must be a full commit SHA")
+
+    expected_names = {
+        *(f"remote-dev-{system}" for system in config.remote_dev_systems),
+        *(f"remote-dev-host-{arch}-linux" for arch in config.host_arches),
+    }
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list):
+        raise Fail("build-manifest artifacts must be a list")
+    got_names = {artifact.get("artifact") for artifact in artifacts}
+    if got_names != expected_names:
+        raise Fail(
+            f"published artifact set mismatch: expected={sorted(expected_names)}, "
+            f"actual={sorted(str(name) for name in got_names)}"
+        )
+    expected_files: set[str] = set()
+    for artifact in artifacts:
+        name = artifact["artifact"]
+        archive = branch_dir / ARTIFACT_DIR / f"{name}.tar.gz"
+        checksum = Path(f"{archive}.sha256")
+        build = branch_dir / ARTIFACT_DIR / f"{name}.build.json"
+        expected_files.update({archive.name, checksum.name, build.name})
+        for path in (archive, checksum, build):
+            if not path.is_file():
+                raise Fail(f"missing artifact file {path.relative_to(branch_dir)}")
+            if path.stat().st_size >= GITHUB_MAX_BLOB_BYTES:
+                raise Fail(f"published blob must be < {GITHUB_MAX_BLOB_BYTES} bytes: {path.name}")
+        digest = sha256_file(archive)
+        if digest != artifact.get("sha256"):
+            raise Fail(f"{archive.name}: build-manifest checksum mismatch")
+        checksum_fields = checksum.read_text().strip().split()
+        if checksum_fields != [digest, archive.name]:
+            raise Fail(f"{checksum.name}: invalid checksum sidecar")
+        build_manifest = json_load(build)
+        if build_manifest.get("sha256") != digest or build_manifest.get("source_sha") != source_sha:
+            raise Fail(f"{build.name}: build metadata mismatch")
+        with tempfile.TemporaryDirectory(prefix=f"validate-{name}-") as raw_temp:
+            extracted = Path(raw_temp)
+            safe_extract_regular_tar(archive, extracted)
+            files = {
+                path.relative_to(extracted).as_posix()
+                for path in extracted.rglob("*")
+                if path.is_file()
+            }
+            if artifact["kind"] == "cli-bundle":
+                required = {"flake.nix", "flake.lock", "bin/remote-dev"}
+                if files != required:
+                    raise Fail(f"{archive.name}: CLI bundle files mismatch: {sorted(files)}")
+                flake = (extracted / "flake.nix").read_text()
+                if f'system = "{artifact["system"]}";' not in flake:
+                    raise Fail(f"{archive.name}: CLI flake does not expose its system")
+                for other in SYSTEMS:
+                    if other != artifact["system"] and f'system = "{other}";' in flake:
+                        raise Fail(f"{archive.name}: CLI flake exposes mismatched system {other}")
+                if "releases/download" in flake or "fetchurl" in flake:
+                    raise Fail(f"{archive.name}: CLI flake contains legacy download logic")
+            elif artifact["kind"] == "host-bundle":
+                for required in (
+                    "manifest.json",
+                    "bootstrap/run",
+                    "bootstrap/host-inspect.sh",
+                    "bootstrap/leasectl.sh",
+                    "nix-cache/nix-cache-info",
+                ):
+                    if required not in files:
+                        raise Fail(f"{archive.name}: missing host bundle file {required}")
+                host_manifest = json_load(extracted / "manifest.json")
+                if host_manifest.get("source_sha") != source_sha:
+                    raise Fail(f"{archive.name}: source SHA mismatch")
+                if host_manifest.get("system") != artifact["system"]:
+                    raise Fail(f"{archive.name}: system mismatch")
+                if host_manifest.get("bundle_schema_version") != HOST_BUNDLE_SCHEMA_VERSION:
+                    raise Fail(f"{archive.name}: bundle schema mismatch")
+                if host_manifest.get("firstboot_schema_version") != FIRSTBOOT_SCHEMA_VERSION:
+                    raise Fail(f"{archive.name}: firstboot schema mismatch")
+                if any(
+                    other in path
+                    for other in SYSTEMS
+                    if other != artifact["system"]
+                    for path in files
+                ):
+                    raise Fail(f"{archive.name}: contains data for a different system")
+            else:
+                raise Fail(f"{name}: unsupported published artifact kind {artifact['kind']}")
+    actual_files = {
+        path.name for path in (branch_dir / ARTIFACT_DIR).iterdir() if path.is_file()
+    }
+    if actual_files != expected_files:
+        raise Fail(
+            f"artifacts directory mismatch: expected={sorted(expected_files)}, "
+            f"actual={sorted(actual_files)}"
+        )
 
 
 def cmd_validate_tree(args: argparse.Namespace) -> None:
@@ -2367,66 +1929,44 @@ def cmd_validate_tree(args: argparse.Namespace) -> None:
 def cmd_verify_remote_cache(args: argparse.Namespace) -> None:
     branch_dir = Path(args.branch_dir)
     config = target_config(args.target, args.arch)
-    entries = required_remote_cache_entries(branch_dir, config)
-    if not entries:
-        raise Fail(
-            "remote cache verification found no concrete cached paths; "
-            "render-tree likely ran without a signing key"
+    validate_tree(branch_dir, config)
+    manifest = json_load(branch_dir / "build-manifest.json")
+    metadata_paths = ["build-manifest.json", "cloud/host-service-image.json"]
+    for artifact in manifest["artifacts"]:
+        name = artifact["artifact"]
+        metadata_paths.extend(
+            [
+                f"artifacts/{name}.tar.gz.sha256",
+                f"artifacts/{name}.build.json",
+            ]
         )
-    for entry in entries:
-        verify_remote_cache_entry(
-            args.artifact_sha,
-            branch_dir,
-            entry,
+        archive_relative = f"artifacts/{name}.tar.gz"
+        archive_url = raw_github_artifact_url(args.artifact_sha, archive_relative)
+        fetch_remote_bytes(
+            archive_url,
+            archive_relative,
+            0,
+            args.attempts,
+            args.sleep_secs,
+            method="HEAD",
+        )
+    for relative in metadata_paths:
+        local = branch_dir / relative
+        remote = fetch_remote_bytes(
+            raw_github_artifact_url(args.artifact_sha, relative),
+            relative,
+            local.stat().st_size,
             args.attempts,
             args.sleep_secs,
         )
+        if remote != local.read_bytes():
+            raise Fail(f"{relative}: remote content does not match generated artifact commit")
     print(
-        "remote cache verified "
+        "remote bundle tree verified "
         f"target={config.name} "
         f"arch={','.join(config.host_arches)} "
         f"artifact_sha={args.artifact_sha} "
-        f"entries={len(entries)}"
-    )
-
-
-def cmd_refresh_aws_ami_pin(args: argparse.Namespace) -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    config = target_config(args.target, pin_arch_selection(args.target, args.arch))
-    index = read_aws_ami_index(args.images_json)
-    selection = select_aws_ami_pin(index, config.host_arches)
-    full_rev = resolve_nixpkgs_full_rev(selection.rev_prefix)
-    update_template_nixpkgs_lock(repo_root, full_rev)
-    metadata = aws_ami_pin_metadata(config, selection, full_rev)
-    json_dump(repo_root / AWS_AMI_PIN_METADATA, metadata)
-    assert_aws_ami_pin_metadata(repo_root)
-    print(
-        "AWS AMI pin refreshed "
-        f"target={config.name} "
-        f"arch={','.join(config.host_arches)} "
-        f"prefix={selection.rev_prefix} "
-        f"full_rev={full_rev} "
-        f"regions={metadata['region_count']}"
-    )
-
-
-def cmd_verify_aws_ami_pin(args: argparse.Namespace) -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    metadata = assert_aws_ami_pin_metadata(repo_root)
-    config = target_config(args.target, pin_arch_selection(args.target, args.arch))
-    index = read_aws_ami_index(args.images_json)
-    selection = select_aws_ami_pin(index, config.host_arches)
-    if selection.rev_prefix != metadata["rev_prefix"]:
-        raise Fail(
-            "AWS AMI pin metadata is stale for current full-coverage official AMI index: "
-            f"{metadata['rev_prefix']} != {selection.rev_prefix}"
-        )
-    print(
-        "AWS AMI pin verified "
-        f"target={config.name} "
-        f"arch={','.join(config.host_arches)} "
-        f"prefix={selection.rev_prefix} "
-        f"full_rev={metadata['full_rev']}"
+        f"artifacts={len(manifest['artifacts'])}"
     )
 
 
@@ -2908,7 +2448,12 @@ def cmd_cleanup_github_test_deployments(args: argparse.Namespace) -> None:
 def fake_artifact(root: Path, manifest: dict[str, str]) -> None:
     name = manifest["artifact"]
     tarball = root / f"{name}.tar.gz"
-    tarball.write_bytes(f"fake {name}\n".encode())
+    with tempfile.TemporaryDirectory(prefix=f"fake-{name}-") as raw_temp:
+        bundle = Path(raw_temp)
+        binary = bundle / manifest["binary"]
+        binary.write_text(f"#!/bin/sh\necho {name}\n")
+        binary.chmod(0o755)
+        write_regular_tar(bundle, tarball)
     digest = sha256_file(tarball)
     (root / f"{name}.tar.gz.sha256").write_text(f"{digest}  {name}.tar.gz\n")
     data = {
@@ -3058,10 +2603,21 @@ def assert_workflows(repo_root: Path) -> None:
             raise Fail("publish-release must not expose cloud/project inputs")
     if "environment: prod" not in release:
         raise Fail("publish-release must use the protected prod environment")
+    if "TARGET_BRANCH: host-service-release" not in release:
+        raise Fail("publish-release must target host-service-release")
+    if "TARGET_BRANCH: host-service-test" not in test:
+        raise Fail("publish-test must target host-service-test")
     if "REMOTE_DEV_CONFIRM_PROD" not in release or "remote-dev-host-prod" not in release:
         raise Fail("publish-release must carry the prod confirmation guard")
     if "contents: write" in test.split("publish:", 1)[0]:
         raise Fail("test build jobs must not receive contents write")
+    for workflow_name, workflow in (("publish-test", test), ("publish-release", release)):
+        publish_job = workflow.split("\n  publish:", 1)[1]
+        if "REMOTE_DEV_READ_TOKEN" in publish_job:
+            raise Fail(f"{workflow_name} publish job must not receive the private source token")
+        for resource in ("provider-bootstrap-run", "host-inspect.sh", "leasectl.sh"):
+            if resource not in workflow:
+                raise Fail(f"{workflow_name} must export host bundle resource {resource}")
     if "git add -A" not in test or "git add -A" not in release:
         raise Fail("publish workflows must stage generated deletions with git add -A")
     for line in combined.splitlines():
@@ -3302,8 +2858,12 @@ def cmd_self_test(_: argparse.Namespace) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     release = target_config("release")
     test_arm = target_config("host-service-test", "aarch64")
-    if release.branch != "main" or release.cloud != "prod" or release.confirm_prod != "remote-dev-host-prod":
-        raise Fail("release target is not bound to main/prod")
+    if (
+        release.branch != "host-service-release"
+        or release.cloud != "prod"
+        or release.confirm_prod != "remote-dev-host-prod"
+    ):
+        raise Fail("release target is not bound to host-service-release/prod")
     if test_arm.remote_dev_systems != ("aarch64-linux",) or test_arm.host_arches != ("aarch64",):
         raise Fail("test aarch64 target did not narrow the matrix")
     if SYSTEMS["aarch64-linux"].cargo_target != "aarch64-unknown-linux-musl":
@@ -3329,80 +2889,6 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         raise Fail(
             "release matrix must include four remote-dev binaries and two runtime binaries"
         )
-    def fake_ami(name: str, arch: str, image_id: str, creation_date: str) -> dict[str, str]:
-        return {
-            "Name": name,
-            "Architecture": arch,
-            "ImageId": image_id,
-            "CreationDate": creation_date,
-            "State": "available",
-            "RootDeviceName": "/dev/xvda",
-        }
-
-    full_coverage_index = {
-        "us-a-1": {
-            "Images": [
-                fake_ami("nixos/25.11.1.111111111111-aarch64-linux", "arm64", "ami-arm-old-a", "2026-01-01T00:00:00.000Z"),
-                fake_ami("nixos/25.11.1.111111111111-x86_64-linux", "x86_64", "ami-x86-old-a", "2026-01-01T00:00:01.000Z"),
-                fake_ami("nixos/25.11.2.222222222222-aarch64-linux", "arm64", "ami-arm-new-a", "2026-02-01T00:00:00.000Z"),
-                fake_ami("nixos/25.11.2.222222222222-x86_64-linux", "x86_64", "ami-x86-new-a", "2026-02-01T00:00:01.000Z"),
-            ]
-        },
-        "us-b-1": {
-            "Images": [
-                fake_ami("nixos/25.11.1.111111111111-aarch64-linux", "arm64", "ami-arm-old-b", "2026-01-01T00:00:00.000Z"),
-                fake_ami("nixos/25.11.1.111111111111-x86_64-linux", "x86_64", "ami-x86-old-b", "2026-01-01T00:00:01.000Z"),
-                fake_ami("nixos/25.11.2.222222222222-aarch64-linux", "arm64", "ami-arm-new-b", "2026-02-01T00:00:00.000Z"),
-                fake_ami("nixos/25.11.2.222222222222-x86_64-linux", "x86_64", "ami-x86-new-b", "2026-02-01T00:00:01.000Z"),
-            ]
-        },
-    }
-    selected_pin = select_aws_ami_pin(full_coverage_index, ("x86_64", "aarch64"))
-    if selected_pin.rev_prefix != "222222222222":
-        raise Fail("AWS AMI pin selection did not choose the latest full-coverage prefix")
-    partial_index = {
-        "us-a-1": {
-            "Images": [
-                fake_ami("nixos/25.11.1.aaaaaaaaaaaa-aarch64-linux", "arm64", "ami-partial-a", "2026-01-01T00:00:00.000Z"),
-            ]
-        },
-        "us-b-1": {
-            "Images": [
-                fake_ami("nixos/25.11.2.bbbbbbbbbbbb-aarch64-linux", "arm64", "ami-partial-b", "2026-02-01T00:00:00.000Z"),
-            ]
-        },
-    }
-    try:
-        select_aws_ami_pin(partial_index, ("aarch64",))
-    except Fail as error:
-        if "full region coverage" not in str(error):
-            raise
-    else:
-        raise Fail("AWS AMI pin selection must fail closed on partial region coverage")
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_root = Path(tmp)
-        json_dump(
-            tmp_root / "templates/flake.lock",
-            {"nodes": {"nixpkgs": {"locked": {"rev": "0" * 40}}}},
-        )
-        json_dump(
-            tmp_root / AWS_AMI_PIN_METADATA,
-            {
-                "full_rev": "1" * 40,
-                "rev_prefix": "1" * AWS_AMI_REV_PREFIX_LEN,
-                "preferred_release_prefix": AWS_AMI_PREFERRED_RELEASE_PREFIX,
-                "ami_names": {
-                    "aarch64": f"nixos/25.11.1.{'1' * AWS_AMI_REV_PREFIX_LEN}-aarch64-linux"
-                },
-            },
-        )
-        try:
-            assert_aws_ami_pin_metadata(tmp_root)
-        except Fail as error:
-            if "does not match AWS AMI pin metadata" not in str(error):
-                raise
-        else:
-            raise Fail("AWS AMI pin metadata check must reject flake.lock mismatches")
     cache_examples = {
         "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-runtime-test": True,
         "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-etc": True,
@@ -3554,7 +3040,6 @@ def cmd_self_test(_: argparse.Namespace) -> None:
     assert_workflows(repo_root)
     assert_cloud_run_revision_cleanup_model()
     assert_github_test_deployment_cleanup_model()
-    assert_aws_ami_pin_metadata(repo_root)
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         artifacts = tmp_path / "artifacts"
@@ -3562,6 +3047,10 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         artifacts.mkdir()
         for entry in build_matrix(test_arm)["include"]:
             fake_artifact(artifacts, {**entry, "target": "host-service-test"})
+        for name in ("provider-bootstrap-run", "host-inspect.sh", "leasectl.sh"):
+            resource = artifacts / name
+            resource.write_text("#!/bin/sh\nset -eu\n")
+            resource.chmod(0o755)
         ns = argparse.Namespace(
             target="host-service-test",
             arch="aarch64",
@@ -3578,324 +3067,102 @@ def cmd_self_test(_: argparse.Namespace) -> None:
             workflow_run_id="1",
         )
         cmd_render_tree(ns)
-        flake = (branch / "flake.nix").read_text()
-        def host_group_block(group_id: str) -> str:
-            marker = f"          {group_id} = mkHostGroupBundle {{"
-            start = flake.find(marker)
-            if start < 0:
-                raise Fail(f"rendered flake is missing host group block {group_id}")
-            ends = [
-                flake.find(f"\n          {candidate['id']} = mkHostGroupBundle {{", start + 1)
-                for candidate in HOST_GROUPS
-                if candidate["id"] != group_id
-            ]
-            ends = [end for end in ends if end >= 0]
-            fallback = flake.find("\n        };\n\n      mkTakeoverRunner", start)
-            if fallback >= 0:
-                ends.append(fallback)
-            if not ends:
-                raise Fail(f"rendered flake host group block {group_id} has no end")
-            return flake[start : min(ends)]
-
-        def default_shell_env_profile_block() -> str:
-            marker = "          defaultShellEnvProfile = pkgs.buildEnv {"
-            start = flake.find(marker)
-            if start < 0:
-                raise Fail("rendered flake is missing defaultShellEnvProfile block")
-            end = flake.find("\n          nixSourceBaseline =", start)
-            if end < 0:
-                raise Fail("rendered flake defaultShellEnvProfile block has no end")
-            return flake[start:end]
-
-        def block_contains_package(block: str, package: str) -> bool:
-            pattern = r"(?<![A-Za-z0-9_.-])" + re.escape(package) + r"(?![A-Za-z0-9_.-])"
-            return re.search(pattern, block) is not None
-
-        group_inputs = {
-            group["id"]: set(group["inputs"])
-            for group in HOST_GROUPS
-        }
-        all_group_inputs = set().union(*group_inputs.values())
-        for group_id, inputs in group_inputs.items():
-            block = host_group_block(group_id)
-            for package in sorted(inputs):
-                if not block_contains_package(block, package):
-                    raise Fail(f"rendered flake group {group_id} missing input {package}")
-            for package in sorted(all_group_inputs - inputs):
-                if block_contains_package(block, package):
-                    raise Fail(f"rendered flake group {group_id} includes input owned by another group: {package}")
-        default_prefill_block = host_group_block("default-dev-shell-prefill")
-        for package in ["pkgs.coreutils", "pkgs.curl", "pkgs.gnumake", "pkgs.openssh", "pkgs.pkg-config"]:
-            if block_contains_package(default_prefill_block, package):
-                raise Fail(f"default-dev-shell-prefill must not retain overlapping input {package}")
-        default_shell_block = default_shell_env_profile_block()
-        for expected in [
-            'name = "remote-dev-default-shell-v2-${system}";',
-            "pkgs.bashInteractive",
-            "pkgs.coreutils",
-            'pathsToLink = [ "/bin" ];',
-        ]:
-            if expected not in default_shell_block:
-                raise Fail(f"defaultShellEnvProfile is missing {expected}")
-        for package in ["pkgs.gcc", "pkgs.glibc.bin", "pkgs.stdenv.cc.cc.lib"]:
-            if block_contains_package(default_shell_block, package):
-                raise Fail(f"defaultShellEnvProfile must not retain C toolchain input {package}")
-        for stale_link in ['"/lib"', '"/lib64"', '"/include"']:
-            if stale_link in default_shell_block:
-                raise Fail(f"defaultShellEnvProfile must not retain pathsToLink entry {stale_link}")
-        git_core_block = host_group_block("git-core")
-        for command in GIT_CORE_COMMANDS:
-            expected = f'(mkHostGroupCommand pkgs.gitMinimal "{command}")'
-            if expected not in git_core_block:
-                raise Fail(f"rendered flake git-core missing command {command}")
-        for stale in ["gitFull", "pkgs.git ", "pkgs.git\n"]:
-            if stale in git_core_block:
-                raise Fail(f"rendered flake git-core must stay on gitMinimal, found {stale.strip()}")
-        for expected in [
-            'host_config_id = "remote-dev-agent-runtime-v2";',
-            "remote-dev-runtime = mkLocalBinaryPackage",
-            "remote-dev-agent-runtime = mkAgentRuntimePackage pkgs remote-dev remote-dev-runtime;",
-            'mkAgentRuntimePackage = pkgs: remoteDevPackage: runtimePackage:',
-            'hostGroupPackages = system: pkgs:',
-            'defaultShellEnvProfile = pkgs.buildEnv {',
-            'name = "remote-dev-default-shell-v2-${system}";',
-            "envProfile = defaultShellEnvProfile;",
-            'host-base-tools = mkHostGroupBundle {',
-            'name = "host-base-tools";',
-            'mkHostGroupCommand = package: command:',
-            'git-core = mkHostGroupBundle {',
-            'name = "git-core";',
-            'mosh-transport = mkHostGroupBundle {',
-            'name = "mosh-transport";',
-            'shell-startup = mkHostGroupBundle {',
-            'name = "shell-startup";',
-            'build-baseline = mkHostGroupBundle {',
-            'name = "build-baseline";',
-            'c-toolchain-gcc = mkHostGroupBundle {',
-            'name = "c-toolchain-gcc";',
-            'c-toolchain-clang = mkHostGroupBundle {',
-            'name = "c-toolchain-clang";',
-            'name = "dev-diagnostics";',
-            '"remote-dev-host-group-git-core" = (hostGroupPackages system pkgs)."git-core";',
-            "remoteDevPackage",
-            "runtimePackage",
-            "pkgs.bashInteractive",
-            "pkgs.clang",
-            "pkgs.file",
-            "pkgs.fzf",
-            "pkgs.gcc",
-            "pkgs.glibc.bin",
-            "pkgs.gnumake",
-            "pkgs.mosh",
-            "pkgs.patchelf",
-            "pkgs.pkg-config",
-            "pkgs.starship",
-            "pkgs.strace",
-            "pkgs.zsh",
-            "pkgs.zstd",
-            "pkgs.gitMinimal",
-            "documentation.enable = false;",
-            "documentation.nixos.enable = false;",
-            "documentation.man.enable = false;",
-            "documentation.man.man-db.enable = false;",
-            "documentation.info.enable = false;",
-            "documentation.doc.enable = false;",
-            "services.amazon-ssm-agent.enable = lib.mkForce false;",
-            "nixpkgs.flake.setFlakeRegistry = false;",
-            "nixpkgs.flake.setNixPath = false;",
-            "nix.registry = lib.mkForce { };",
-            "nix.nixPath = lib.mkForce [ ];",
-            "nix.channel.enable = false;",
-        ]:
-            if expected not in flake:
-                raise Fail(f"rendered flake is missing {expected}")
-        if "ignoreCollisions" in flake:
-            raise Fail("host group bundles must not ignore path collisions")
-        if "devShells" in flake or "mkShellNoCC" in flake or "mkHostShell" in flake:
-            raise Fail("host groups must be packages, not devShells")
-        agent_runtime_block = flake.split("mkAgentRuntimePackage =", 1)[1].split("hostGroupPackages", 1)[0]
-        for group_tool in sorted(
-            {
-                package
-                for group in HOST_GROUPS
-                for package in group["inputs"]
-                if package.startswith("pkgs.")
-            }
+        validate_tree(branch, test_arm)
+        root_entries = {path.name for path in branch.iterdir()}
+        if root_entries != {"build-manifest.json", "artifacts", "cloud"}:
+            raise Fail(f"single-commit artifact root mismatch: {sorted(root_entries)}")
+        for stale in (
+            "flake.nix",
+            "flake.lock",
+            "nix-cache",
+            "host-runtime-specs",
+            "host-image-specs",
+            "cloud/agent-runtime-closure-aarch64-linux.json",
+            "cloud/host-groups-catalog-aarch64-linux.json",
         ):
-            if group_tool in agent_runtime_block:
-                raise Fail(f"agent runtime must not include host group tool {group_tool}")
-        host_base_block = host_group_block("host-base-tools")
-        for package in [
-            "pkgs.bash",
-            "pkgs.coreutils",
-            "pkgs.curl",
-            "pkgs.iproute2",
-            "pkgs.nix",
-            "pkgs.openssh",
-            "pkgs.systemd",
-            "pkgs.util-linux",
-        ]:
-            if not block_contains_package(host_base_block, package):
-                raise Fail(f"host-base-tools missing input {package}")
-        if any(line.strip() == "pkgs.git" for line in flake.splitlines()):
-            raise Fail("host baseline must use pkgs.gitMinimal instead of pkgs.git")
-        spec_path = branch / "host-runtime-specs/aarch64.json"
-        spec = json_load(spec_path)
-        if spec["schema_version"] != 9:
-            raise Fail("runtime spec did not use schema v9")
-        if spec["firstboot_schema_version"] != 2:
-            raise Fail("runtime spec did not use firstboot schema v2")
-        if spec["aws_official_nixos_ami"]["preferred_release_prefix"] != AWS_AMI_PREFERRED_RELEASE_PREFIX:
-            raise Fail("runtime spec did not include the preferred AMI release prefix")
-        if spec["baseline_id"] != "remote-dev-agent-runtime-v2":
-            raise Fail("runtime spec did not use the agent runtime contract id")
-        if spec["bootstrap"]["agent_runtime_attr"] != "packages.aarch64-linux.remote-dev-agent-runtime":
-            raise Fail("runtime spec did not point at the agent runtime package")
-        if spec["bootstrap"]["agent_runtime_closure_manifest_file"] != "cloud/agent-runtime-closure-aarch64-linux.json":
-            raise Fail("runtime spec did not point at the agent runtime closure manifest")
-        if not spec["bootstrap"]["agent_runtime_store_path"].endswith("-remote-dev-agent-runtime-aarch64-linux"):
-            raise Fail("runtime spec did not include agent runtime store path")
-        if spec["bootstrap"]["agent_runtime_fingerprint"] != agent_runtime_fingerprint(
-            "aarch64-linux", spec["bootstrap"]["agent_runtime_store_path"]
-        ):
-            raise Fail("runtime spec agent runtime fingerprint mismatch")
-        if not (branch / "cloud/agent-runtime-closure-aarch64-linux.json").is_file():
-            raise Fail("runtime closure manifest was not rendered")
-        if spec["bootstrap"]["host_groups_catalog_file"] != "cloud/host-groups-catalog-aarch64-linux.json":
-            raise Fail("runtime spec did not point at the host groups catalog")
-        catalog = json_load(branch / "cloud/host-groups-catalog-aarch64-linux.json")
-        if catalog["schema_version"] != HOST_GROUPS_CATALOG_SCHEMA_VERSION:
-            raise Fail("host groups catalog did not use schema v3")
-        if catalog["fingerprint"] != spec["bootstrap"]["host_groups_catalog_fingerprint"]:
-            raise Fail("runtime spec host groups catalog fingerprint mismatch")
-        if catalog["contracts"] != host_groups_catalog_contracts("aarch64-linux", catalog["groups"]):
-            raise Fail("host groups catalog default shell contract mismatch")
-        groups = {group["id"]: group for group in catalog["groups"]}
-        if set(groups) != {group["id"] for group in HOST_GROUPS}:
-            raise Fail("host groups catalog group set mismatch")
-        if groups["default-dev-shell-prefill"]["commands"] != []:
-            raise Fail("default dev shell prefill must not expose fake commands")
-        default_shell_contract = catalog["contracts"][0]
-        if default_shell_contract["id"] != HOST_DEFAULT_SHELL_CONTRACT_ID:
-            raise Fail("default shell contract id mismatch")
-        if default_shell_contract["group_id"] != "default-dev-shell-prefill":
-            raise Fail("default shell contract group mismatch")
-        if (
-            default_shell_contract["env_snapshot"]
-            != "/var/lib/remote-dev/runtime/groups/default-dev-shell-prefill/env"
-        ):
-            raise Fail("default shell contract env snapshot mismatch")
-        host_base_commands = [shim["command"] for shim in groups["host-base-tools"]["commands"]]
-        if host_base_commands != list(HOST_BASE_COMMANDS):
-            raise Fail("host-base-tools command surface mismatch")
-        host_default_groups = sorted(
-            group_id for group_id, group in groups.items() if "host-default" in group["labels"]
-        )
-        if host_default_groups:
-            raise Fail(f"host-default label must not be rendered, got {host_default_groups}")
-        groups_by_label = {
-            label: [
-                group["id"]
-                for group in sorted(catalog["groups"], key=lambda item: (item["priority"], item["id"]))
-                if label in group["labels"]
-            ]
-            for label in [
-                "source-bootstrap",
-                "shell-baseline",
-                "shell-baseline-nonblocking",
-                "preconnect",
-            ]
-        }
-        if groups_by_label["source-bootstrap"] != ["git-core"]:
-            raise Fail(f"source-bootstrap lane mismatch: {groups_by_label['source-bootstrap']}")
-        if any("workspace-prefill" in group["labels"] for group in catalog["groups"]):
-            raise Fail("host groups catalog retained workspace-prefill label")
-        if groups_by_label["shell-baseline"] != ["shell-startup"]:
-            raise Fail(f"shell-baseline lane mismatch: {groups_by_label['shell-baseline']}")
-        if groups_by_label["shell-baseline-nonblocking"] != ["host-base-tools"]:
-            raise Fail(
-                "shell-baseline-nonblocking lane mismatch: "
-                f"{groups_by_label['shell-baseline-nonblocking']}"
-            )
-        if groups_by_label["preconnect"] != [
-            "default-dev-shell-prefill",
-            "shell-startup",
-            "mosh-transport",
-            "host-base-tools",
-            "nix-source-baseline",
-        ]:
-            raise Fail(f"preconnect lane mismatch: {groups_by_label['preconnect']}")
-        git_commands = [shim["command"] for shim in groups["git-core"]["commands"]]
-        if git_commands != list(GIT_CORE_COMMANDS):
-            raise Fail("git-core must expose the full gitMinimal command surface")
-        if spec["bootstrap"]["git_core_group_store_path"] != groups["git-core"]["store_path"]:
-            raise Fail("runtime spec git-core store path mismatch")
-        if spec["bootstrap"]["git_core_group_fingerprint"] != groups["git-core"]["fingerprint"]:
-            raise Fail("runtime spec git-core fingerprint mismatch")
-        shell_commands = [shim["command"] for shim in groups["shell-startup"]["commands"]]
-        if shell_commands != ["zsh", "starship"]:
-            raise Fail("shell-startup must only expose zsh and starship")
-        build_commands = [shim["command"] for shim in groups["build-baseline"]["commands"]]
-        if build_commands != ["pkg-config", "make"]:
-            raise Fail("build-baseline must only expose pkg-config and make")
-        gcc_commands = [shim["command"] for shim in groups["c-toolchain-gcc"]["commands"]]
-        if gcc_commands != ["cc", "gcc"]:
-            raise Fail("c-toolchain-gcc must only expose cc and gcc")
-        clang_commands = [shim["command"] for shim in groups["c-toolchain-clang"]["commands"]]
-        if clang_commands != ["clang"]:
-            raise Fail("c-toolchain-clang must only expose clang")
-        if groups["c-toolchain-clang"]["priority"] != 200:
-            raise Fail("c-toolchain-clang must stay late in the background queue")
-        diagnostic_commands = [shim["command"] for shim in groups["dev-diagnostics"]["commands"]]
-        if diagnostic_commands != ["strace", "file", "ldd"]:
-            raise Fail("dev-diagnostics must only expose diagnostic commands")
-        for group in groups.values():
-            if "installable" in group or "scope" in group or "policy" in group:
-                raise Fail("host groups catalog retained shell schema fields")
-            if not group.get("store_path"):
-                raise Fail("host groups group missing store_path")
-            for command in group["commands"]:
-                if not command.get("relative_path"):
-                    raise Fail("host groups command missing relative_path")
-            if not (branch / group["closure_manifest_file"]).is_file():
-                raise Fail("host groups closure manifest was not rendered")
-        if (branch / AWS_BOOTSTRAP_FLAKE).exists() or (branch / AWS_BOOTSTRAP_LOCK).exists():
-            raise Fail("AWS bootstrap flake must not be rendered for host runtime firstboot")
-        if (branch / "host-image-specs/x86_64.json").exists():
-            raise Fail("aarch64-only publish rendered x86_64 host spec")
-        if (branch / "host-runtime-specs/x86_64.json").exists():
-            raise Fail("aarch64-only publish rendered x86_64 runtime spec")
-        if (branch / "cloud/host-groups-catalog-x86_64-linux.json").exists():
-            raise Fail("aarch64-only publish rendered x86_64 host groups catalog")
-        if required_remote_cache_entries(branch, test_arm):
-            raise Fail("placeholder render must not require remote cache entries")
-        concrete_path = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-agent-runtime-aarch64-linux"
-        concrete_nar = branch / NIX_CACHE_DIR / "nar/test.nar.xz"
-        concrete_nar.parent.mkdir(parents=True, exist_ok=True)
-        concrete_nar.write_bytes(b"nar")
-        concrete_narinfo = narinfo_path(branch / NIX_CACHE_DIR, concrete_path)
-        concrete_narinfo.write_text(f"StorePath: {concrete_path}\nURL: nar/test.nar.xz\n")
-        spec = json_load(spec_path)
-        spec["bootstrap"]["agent_runtime_store_path"] = concrete_path
-        json_dump(spec_path, spec)
-        closure_path = branch / "cloud/agent-runtime-closure-aarch64-linux.json"
-        closure = json_load(closure_path)
-        closure["agent_runtime_store_path"] = concrete_path
-        closure["paths"] = [{"path": concrete_path, "signatures": [], "narSize": 3}]
-        json_dump(closure_path, closure)
-        entries = required_remote_cache_entries(branch, test_arm)
-        if len(entries) != 1 or entries[0].store_path != concrete_path:
-            raise Fail("remote cache entry collection did not include concrete agent runtime")
-        if entries[0].narinfo_relative != f"{NIX_CACHE_DIR}/{concrete_narinfo.name}":
-            raise Fail("remote cache entry collection produced the wrong narinfo path")
-        concrete_nar.unlink()
+            if (branch / stale).exists():
+                raise Fail(f"artifact tree retained staging path {stale}")
+        build_manifest = json_load(branch / "build-manifest.json")
+        if {artifact["kind"] for artifact in build_manifest["artifacts"]} != {
+            "cli-bundle",
+            "host-bundle",
+        }:
+            raise Fail("artifact tree did not publish only CLI and host bundles")
+        cli_archive = branch / "artifacts/remote-dev-aarch64-linux.tar.gz"
+        host_archive = branch / "artifacts/remote-dev-host-aarch64-linux.tar.gz"
+        with tempfile.TemporaryDirectory(prefix="self-test-cli-") as raw_cli:
+            cli = Path(raw_cli)
+            safe_extract_regular_tar(cli_archive, cli)
+            if {
+                path.relative_to(cli).as_posix()
+                for path in cli.rglob("*")
+                if path.is_file()
+            } != {"flake.nix", "flake.lock", "bin/remote-dev"}:
+                raise Fail("CLI bundle shape mismatch")
+            flake = (cli / "flake.nix").read_text()
+            if 'system = "aarch64-linux";' not in flake:
+                raise Fail("CLI bundle does not expose aarch64-linux")
+            if 'system = "x86_64-linux";' in flake:
+                raise Fail("CLI bundle exposes an unbuilt system")
+        with tempfile.TemporaryDirectory(prefix="self-test-host-") as raw_host:
+            host = Path(raw_host)
+            safe_extract_regular_tar(host_archive, host)
+            host_manifest = json_load(host / "manifest.json")
+            if host_manifest["bundle_schema_version"] != HOST_BUNDLE_SCHEMA_VERSION:
+                raise Fail("host bundle schema mismatch")
+            if host_manifest["firstboot_schema_version"] != FIRSTBOOT_SCHEMA_VERSION:
+                raise Fail("host bundle firstboot schema mismatch")
+            if host_manifest["system"] != "aarch64-linux":
+                raise Fail("host bundle system mismatch")
+            if not (host / "bootstrap/run").is_file():
+                raise Fail("host bundle entrypoint is missing")
+            if any("x86_64-linux" in path.as_posix() for path in host.rglob("*")):
+                raise Fail("aarch64 host bundle contains x86_64 data")
+        unsafe = artifacts / "unsafe.tar.gz"
+        with tarfile.open(unsafe, "w:gz") as archive:
+            info = tarfile.TarInfo("../escape")
+            info.size = 0
+            archive.addfile(info)
         try:
-            required_remote_cache_entries(branch, test_arm)
+            safe_extract_regular_tar(unsafe, tmp_path / "unsafe-extract")
         except Fail as error:
-            if "referenced Nar file is missing" not in str(error):
+            if "unsafe tar path" not in str(error):
                 raise
         else:
-            raise Fail("remote cache entry collection must reject missing Nar files")
+            raise Fail("safe tar extraction accepted a parent traversal")
+
+        release_artifacts = tmp_path / "release-artifacts"
+        release_branch = tmp_path / "release-branch"
+        release_artifacts.mkdir()
+        for entry in build_matrix(release)["include"]:
+            fake_artifact(release_artifacts, {**entry, "target": "release"})
+        for name in ("provider-bootstrap-run", "host-inspect.sh", "leasectl.sh"):
+            resource = release_artifacts / name
+            resource.write_text("#!/bin/sh\nset -eu\n")
+            resource.chmod(0o755)
+        cmd_render_tree(
+            argparse.Namespace(
+                target="release",
+                arch="both",
+                artifacts_dir=str(release_artifacts),
+                branch_dir=str(release_branch),
+                source_sha="0123456789abcdef0123456789abcdef01234567",
+                source_ref="test-source",
+                version="0.0.0-test",
+                nix_cache_public_key="remote-dev-test:public",
+                nix_cache_signing_key_file=None,
+                image_digest="sha256:" + "2" * 64,
+                image="us-west1-docker.pkg.dev/remote-dev-host-prod/remote-dev/host-service:test",
+                deployed_image=None,
+                workflow_run_id="2",
+            )
+        )
+        validate_tree(release_branch, release)
+        release_manifest = json_load(release_branch / "build-manifest.json")
+        if release_manifest["target"]["branch"] != "host-service-release":
+            raise Fail("release render did not target host-service-release")
+        if len(release_manifest["artifacts"]) != 6:
+            raise Fail("full release render did not produce four CLI and two host bundles")
     print("self-test passed")
 
 
@@ -3967,18 +3234,6 @@ def parser() -> argparse.ArgumentParser:
     remote_cache.add_argument("--attempts", type=int, default=6)
     remote_cache.add_argument("--sleep-secs", type=float, default=5.0)
     remote_cache.set_defaults(func=cmd_verify_remote_cache)
-
-    pin = sub.add_parser("refresh-aws-ami-pin")
-    pin.add_argument("--target", choices=["release", "host-service-test"], default="host-service-test")
-    pin.add_argument("--arch", choices=["x86_64", "aarch64", "both"])
-    pin.add_argument("--images-json")
-    pin.set_defaults(func=cmd_refresh_aws_ami_pin)
-
-    verify_pin = sub.add_parser("verify-aws-ami-pin")
-    verify_pin.add_argument("--target", choices=["release", "host-service-test"], default="host-service-test")
-    verify_pin.add_argument("--arch", choices=["x86_64", "aarch64", "both"])
-    verify_pin.add_argument("--images-json")
-    verify_pin.set_defaults(func=cmd_verify_aws_ami_pin)
 
     c = sub.add_parser("cleanup-test-branch")
     c.add_argument("--branch-dir", required=True)

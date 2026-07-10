@@ -1,66 +1,58 @@
 # remote-dev-bin
 
-This is the public artifact and execution repository for the private
-`M-Adoo/remote-dev` project.
+This is the public publisher and artifact repository for the private
+`M-Adoo/remote-dev` project. It is not a compatibility or support surface for
+external consumers.
 
-It is public so Nix flakes, HostService hosts, and GitHub Actions can fetch
-generated artifacts without private repository credentials. It is not a
-general-purpose product distribution channel and does not promise stability,
-compatibility, or support for external users.
+## Branch roles
 
-## Published Refs
+- `main` contains publisher source and GitHub Actions only. It never contains
+  generated release artifacts.
+- `host-service-release` contains production artifacts and production Cloud Run
+  deployment metadata. It is append-only and must never be force-pushed.
+- `host-service-test` contains test artifacts and test Cloud Run deployment
+  metadata. Retention cleanup may force-push this branch.
 
-- `main`: production release artifacts and production Cloud Run deployment
-  metadata.
-- `host-service-test`: floating test artifacts and test Cloud Run deployment
-  metadata. This branch may be force-pushed by retention cleanup.
+The release and test artifact branches use the same schema. Test may select a
+single Linux architecture; release always publishes the complete matrix.
 
-Both refs use the same generated artifact schema:
+Each artifact commit contains only:
 
 - `build-manifest.json`
-- `artifacts/*.tar.gz`
-- `artifacts/*.tar.gz.sha256`
-- `artifacts/*.build.json`
-- `flake.nix`
-- `flake.lock`
-- `host-runtime-specs/<arch>.json`
-- `cloud/agent-runtime-closure-<system>.json`
-- `cloud/host-groups-catalog-<system>.json`
-- `cloud/host-groups/<group>-<system>.json`
+- `artifacts/remote-dev-<system>.tar.gz` plus `.sha256` and `.build.json`
+- `artifacts/remote-dev-host-<linux-system>.tar.gz` plus `.sha256` and `.build.json`
 - `cloud/host-service-image.json`
-- `nix-cache/`
 
-Host group catalogs use schema v3. Each host group is a published package
-bundle with a realized store path, closure manifest, command-relative paths,
-and optional contract env snapshots. The catalog includes the
-`remote-dev-default-shell-v2` contract for the default workspace shell baseline.
-That baseline only promises bash/coreutils; C toolchains live in explicit host
-groups and are not part of the empty workspace shell. Host groups are not
-project `devShells`.
+There are no GitHub Release Assets, root artifact flake, expanded `nix-cache/`,
+`host-runtime-specs/`, closure/catalog files, platform child commits, or index
+commit.
 
-The flake consumes repository-local tarballs from `artifacts/`; it does not
-fetch GitHub Release assets.
+The CLI archive is itself a platform-specific flake. It contains `flake.nix`,
+`flake.lock`, and `bin/remote-dev`, and exposes only its declared system. Install
+from an immutable artifact commit with:
+
+```text
+tarball+https://raw.githubusercontent.com/M-Adoo/remote-dev-bin/<commit>/artifacts/remote-dev-<system>.tar.gz
+```
+
+The host archive is self-contained for one Linux system. It carries its
+manifest, bundle-owned firstboot entrypoint and host-control scripts, signed Nix
+cache, agent runtime closure, and host-group data. HostService firstboot fetches
+only this archive and its checksum; `build-manifest.json` is audit metadata and
+is not a firstboot input.
 
 ## Workflows
 
-`Publish Test Artifacts` is manual and always publishes to
-`host-service-test` for the `remote-dev-host-test` project. The source ref is
-required so test publishes use the commit or private temporary branch under
-test, not an implicit `remote-dev/main`. It defaults to `aarch64` and can build
-`x86_64`, `aarch64`, or both.
+`Publish Test Artifacts` is manual, requires an explicit private source ref,
+defaults to `aarch64`, and publishes only to `host-service-test` and
+`remote-dev-host-test`.
 
-`Publish Release Artifacts` is manual and always publishes to `main` for the
-`remote-dev-host-prod` project. It builds the full binary matrix, deploys prod
-Cloud Run from the image digest, and requires the protected `prod` environment
-plus `REMOTE_DEV_CONFIRM_PROD=remote-dev-host-prod`.
+`Publish Release Artifacts` is manual, publishes only to
+`host-service-release` and `remote-dev-host-prod`, builds the full matrix, and
+requires the protected `prod` environment plus
+`REMOTE_DEV_CONFIRM_PROD=remote-dev-host-prod`.
 
-`Delete Successful Test Run Record` removes successful `Publish Test Artifacts`
-and `Cleanup HostService Test Artifacts` workflow run records after those runs
-complete. Failed, cancelled, or timed-out test runs are kept for short-term
-diagnosis and removed by the scheduled cleanup after 7 days.
-
-`Cleanup HostService Test Artifacts` rewrites `host-service-test`, removes
-completed test workflow run records older than 7 days, and removes
-`environment=test` GitHub deployments older than 7 days. Test Cloud Run revision
-cleanup keeps the latest 20 revisions while also protecting latest ready, latest
-created, traffic, and tagged revisions. `main` must not be force-pushed.
+Build jobs have private source read authority only. The publish job receives
+build outputs and bootstrap resources but no private repository token. Cloud
+authority, signing authority, artifact-branch write authority, and deployment
+remain in the publish job.

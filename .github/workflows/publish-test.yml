@@ -214,6 +214,10 @@ jobs:
           echo "Artifact size elapsed_seconds=$((artifact_end - artifact_start))"
           echo "::endgroup::"
 
+          cp remote-dev/crates/remote-dev-host-service/src/resources/provider-bootstrap/run out/provider-bootstrap-run
+          cp remote-dev/crates/remote-dev-host-service/src/resources/host-control/host-inspect.sh out/host-inspect.sh
+          cp remote-dev/crates/remote-dev-host-service/src/resources/host-control/leasectl.sh out/leasectl.sh
+
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
