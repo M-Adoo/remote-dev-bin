@@ -1590,6 +1590,7 @@ def copy_bundle_cache(branch_dir: Path, bundle_dir: Path, closure_files: list[st
 
 
 def package_host_bundles(
+    repo_root: Path,
     artifacts_dir: Path,
     branch_dir: Path,
     config: TargetConfig,
@@ -1656,6 +1657,7 @@ def package_host_bundles(
                 "host_groups_catalog_fingerprint": catalog_meta["fingerprint"],
                 "git_core_group_store_path": git_core["store_path"],
                 "git_core_group_fingerprint": git_core["fingerprint"],
+                "flake_lock_hash": f"sha256:{sha256_file(repo_root / 'templates/flake.lock')}",
             }
             json_dump(bundle / "manifest.json", bundle_manifest)
             write_regular_tar(bundle, archive)
@@ -1762,6 +1764,7 @@ def cmd_render_tree(args: argparse.Namespace) -> None:
     )
     cli_bundles = package_cli_bundles(repo_root, branch_dir, copied)
     host_bundles = package_host_bundles(
+        repo_root,
         artifacts_dir,
         branch_dir,
         config,
@@ -1903,6 +1906,11 @@ def validate_tree(branch_dir: Path, config: TargetConfig) -> None:
                     raise Fail(f"{archive.name}: bundle schema mismatch")
                 if host_manifest.get("firstboot_schema_version") != FIRSTBOOT_SCHEMA_VERSION:
                     raise Fail(f"{archive.name}: firstboot schema mismatch")
+                flake_lock_hash = host_manifest.get("flake_lock_hash")
+                if not isinstance(flake_lock_hash, str) or not re.fullmatch(
+                    r"sha256:[0-9a-f]{64}", flake_lock_hash
+                ):
+                    raise Fail(f"{archive.name}: flake lock hash is missing or invalid")
                 if any(
                     other in path
                     for other in SYSTEMS
@@ -3114,6 +3122,8 @@ def cmd_self_test(_: argparse.Namespace) -> None:
                 raise Fail("host bundle firstboot schema mismatch")
             if host_manifest["system"] != "aarch64-linux":
                 raise Fail("host bundle system mismatch")
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", host_manifest["flake_lock_hash"]):
+                raise Fail("host bundle flake lock hash is invalid")
             if not (host / "bootstrap/run").is_file():
                 raise Fail("host bundle entrypoint is missing")
             if any("x86_64-linux" in path.as_posix() for path in host.rglob("*")):

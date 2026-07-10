@@ -37,9 +37,9 @@ tarball+https://raw.githubusercontent.com/M-Adoo/remote-dev-bin/<commit>/artifac
 
 The host archive is self-contained for one Linux system. It carries its
 manifest, bundle-owned firstboot entrypoint and host-control scripts, signed Nix
-cache, agent runtime closure, and host-group data. HostService firstboot fetches
-only this archive and its checksum; `build-manifest.json` is audit metadata and
-is not a firstboot input.
+cache, staging flake-lock SHA-256, agent runtime closure, and host-group data.
+HostService firstboot fetches only this archive and its checksum;
+`build-manifest.json` is audit metadata and is not a firstboot input.
 
 ## Workflows
 
