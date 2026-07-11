@@ -43,7 +43,7 @@ HOST_GROUPS_DIR = "cloud/host-groups"
 GITHUB_MAX_BLOB_BYTES = 100_000_000
 BOOTSTRAP_SOURCE_MAX_BYTES = 5 * 1024 * 1024
 CLOSURE_AUDIT_TOP_NAR_PATHS = 10
-MAX_AGENT_RUNTIME_CLOSURE_PATHS = 3
+AGENT_RUNTIME_CLOSURE_PATHS = 1
 CLOSURE_AUDIT_MARKERS = (
     "amazon-ssm-agent",
     "git-doc",
@@ -52,8 +52,6 @@ CLOSURE_AUDIT_MARKERS = (
 )
 AGENT_RUNTIME_CLOSURE_ALLOWED_NAMES = (
     "remote-dev-agent-runtime",
-    "remote-dev-",
-    "remote-dev-runtime",
 )
 AGENT_RUNTIME_CLOSURE_DENIED_MARKERS = (
     "binutils",
@@ -1005,10 +1003,10 @@ def audit_runtime_closures(branch_dir: Path, config: TargetConfig) -> list[dict[
         closure_path = branch_dir / agent_runtime_closure_manifest_file(system)
         audit = audit_closure_manifest(branch_dir / NIX_CACHE_DIR, json_load(closure_path))
         audit["system"] = system
-        if audit["closure_paths"] > MAX_AGENT_RUNTIME_CLOSURE_PATHS:
+        if audit["closure_paths"] != AGENT_RUNTIME_CLOSURE_PATHS:
             raise Fail(
-                "agent runtime closure is not minimal: "
-                f"paths={audit['closure_paths']} max={MAX_AGENT_RUNTIME_CLOSURE_PATHS}"
+                "agent runtime closure must be one self-contained path: "
+                f"paths={audit['closure_paths']} expected={AGENT_RUNTIME_CLOSURE_PATHS}"
             )
         assert_agent_runtime_closure_names(audit["path_names"])
         audits.append(audit)
@@ -2887,6 +2885,45 @@ def assert_github_test_deployment_cleanup_model() -> None:
 
 def cmd_self_test(_: argparse.Namespace) -> None:
     repo_root = Path(__file__).resolve().parents[1]
+    flake_template = (repo_root / "templates/flake.nix.in").read_text()
+    agent_runtime_package = flake_template[
+        flake_template.index("mkAgentRuntimePackage") : flake_template.index("hostGroupPackages")
+    ]
+    if "pkgs.buildEnv" in agent_runtime_package:
+        raise Fail("agent runtime package must not retain buildEnv symlink aggregation")
+    for marker in (
+        'pkgs.runCommand "remote-dev-agent-runtime"',
+        "install -m 0755 ${remoteDevPackage}/bin/remote-dev $out/bin/remote-dev",
+        "install -m 0755 ${runtimePackage}/bin/remote-dev-runtime $out/bin/remote-dev-runtime",
+    ):
+        if marker not in agent_runtime_package:
+            raise Fail(f"agent runtime package is missing copying contract: {marker}")
+    package_contract = package_attrs(
+        [
+            {
+                "kind": "remote-dev",
+                "system": "aarch64-linux",
+                "artifact": "remote-dev-aarch64-linux",
+                "binary": "remote-dev",
+                "tarball": "artifacts/remote-dev-aarch64-linux.tar.gz",
+            },
+            {
+                "kind": "runtime",
+                "system": "aarch64-linux",
+                "artifact": "remote-dev-runtime-aarch64-linux",
+                "binary": "remote-dev-runtime",
+                "tarball": "artifacts/remote-dev-runtime-aarch64-linux.tar.gz",
+            },
+        ]
+    )
+    for marker in (
+        "remote-dev = mkLocalBinaryPackage",
+        "remote-dev-runtime = mkLocalBinaryPackage",
+        "remote-dev-agent-runtime = mkAgentRuntimePackage",
+        "default = remote-dev;",
+    ):
+        if marker not in package_contract:
+            raise Fail(f"published package boundary is missing: {marker}")
     release = target_config("release")
     test_arm = target_config("host-service-test", "aarch64")
     if (
@@ -2979,19 +3016,12 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         if audit["closure_paths"] != 1 or audit["unsigned_paths"] != 1:
             raise Fail("closure audit did not count unsigned paths")
         assert_agent_runtime_closure_names(
-            [
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-agent-runtime-aarch64-linux",
-                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-remote-dev-aarch64-linux",
-                "cccccccccccccccccccccccccccccccc-remote-dev-runtime-aarch64-linux",
-            ]
-        )
-        assert_agent_runtime_closure_names(
-            [
-                "dddddddddddddddddddddddddddddddd-remote-dev-host-service-test.20260706T040315Z-gcc0b7cd233da-remote-dev-bin-test-cc0b7cd233da-1783310306",
-                "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-remote-dev-runtime-host-service-test.20260706T040315Z-gcc0b7cd233da-remote-dev-bin-test-cc0b7cd233da-1783310306",
-            ]
+            ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-agent-runtime"]
         )
         for bad_name in [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-aarch64-linux",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-runtime-aarch64-linux",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-host-service-test.20260706T040315Z",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-gcc-15.1.0",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-glibc-2.42-61",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-remote-dev-host-group-git-core-aarch64-linux",

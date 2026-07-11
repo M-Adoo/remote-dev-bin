@@ -25,11 +25,11 @@
         };
 
       mkAgentRuntimePackage = pkgs: remoteDevPackage: runtimePackage:
-        pkgs.buildEnv {
-          name = "remote-dev-agent-runtime";
-          paths = [ remoteDevPackage runtimePackage ];
-          pathsToLink = [ "/bin" ];
-        };
+        pkgs.runCommand "remote-dev-agent-runtime" { } ''
+          mkdir -p $out/bin
+          install -m 0755 ${remoteDevPackage}/bin/remote-dev $out/bin/remote-dev
+          install -m 0755 ${runtimePackage}/bin/remote-dev-runtime $out/bin/remote-dev-runtime
+        '';
 
       hostGroupPackages = system: pkgs:
         let
