@@ -385,6 +385,26 @@ jobs:
             --allow-unauthenticated \
             --quiet
 
+      - name: Refresh provider spots
+        run: |
+          SERVICE_URL="$(gcloud run services describe "$SERVICE" \
+            --project "$TARGET_PROJECT" \
+            --region "$REGION" \
+            --format='value(status.url)')"
+          case "$SERVICE_URL" in
+            https://*) ;;
+            *) echo "Cloud Run status.url must be https, got $SERVICE_URL" >&2; exit 1 ;;
+          esac
+          curl -fsS -X POST -H 'content-length: 0' \
+            "$SERVICE_URL/v1/host-admin/spots/refresh" \
+            -o "$RUNNER_TEMP/provider-spots-refresh.json"
+          jq -e '.refresh.failed == 0' "$RUNNER_TEMP/provider-spots-refresh.json"
+          curl -fsS "$SERVICE_URL/v1/host-admin/spots" \
+            -o "$RUNNER_TEMP/provider-spots.json"
+          jq -e --arg sha '${{ steps.artifact.outputs.sha }}' \
+            '([.providers[].spots[].launch.artifact_sha] | length > 0 and all(. == $sha))' \
+            "$RUNNER_TEMP/provider-spots.json"
+
       - name: Cleanup Cloud Run revisions
         run: |
           python3 publisher/scripts/publish.py cleanup-cloud-run-revisions \
