@@ -73,6 +73,7 @@ CLOUD_RUN_LATEST_READY_FIELDS = ("latestReadyRevisionName", "latestReadyRevision
 CLOUD_RUN_LATEST_CREATED_FIELDS = ("latestCreatedRevisionName", "latestCreatedRevision")
 CLOUD_RUN_TRAFFIC_REVISION_FIELDS = ("revisionName", "revision")
 GITHUB_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+ARCHIVE_MEMBER_NAME_RE = re.compile(r"^[A-Za-z0-9._+/-]+$")
 
 GIT_CORE_COMMANDS = (
     "git",
@@ -1448,16 +1449,25 @@ def write_cloud_image_metadata(
 def safe_extract_regular_tar(archive: Path, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive, "r:gz") as source:
-        for member in source.getmembers():
-            relative = PurePosixPath(member.name)
-            if relative.is_absolute() or any(part in ("", ".", "..") for part in relative.parts):
+        members = source.getmembers()
+        seen: set[str] = set()
+        for member in members:
+            if not ARCHIVE_MEMBER_NAME_RE.fullmatch(member.name):
                 raise Fail(f"{archive}: unsafe tar path {member.name!r}")
+            parts = member.name.split("/")
+            if member.name.startswith("/") or any(part in ("", ".", "..") for part in parts):
+                raise Fail(f"{archive}: unsafe tar path {member.name!r}")
+            if member.name in seen:
+                raise Fail(f"{archive}: duplicate tar path {member.name!r}")
+            seen.add(member.name)
+            if not (member.isdir() or member.isfile()):
+                raise Fail(f"{archive}: unsupported tar entry type for {member.name!r}")
+        for member in members:
+            relative = PurePosixPath(member.name)
             target = destination.joinpath(*relative.parts)
             if member.isdir():
                 target.mkdir(parents=True, exist_ok=True)
                 continue
-            if not member.isfile():
-                raise Fail(f"{archive}: unsupported tar entry type for {member.name!r}")
             target.parent.mkdir(parents=True, exist_ok=True)
             extracted = source.extractfile(member)
             if extracted is None:
@@ -3141,18 +3151,45 @@ def cmd_self_test(_: argparse.Namespace) -> None:
                 raise Fail("host bundle entrypoint is missing")
             if any("x86_64-linux" in path.as_posix() for path in host.rglob("*")):
                 raise Fail("aarch64 host bundle contains x86_64 data")
-        unsafe = artifacts / "unsafe.tar.gz"
-        with tarfile.open(unsafe, "w:gz") as archive:
-            info = tarfile.TarInfo("../escape")
-            info.size = 0
-            archive.addfile(info)
-        try:
-            safe_extract_regular_tar(unsafe, tmp_path / "unsafe-extract")
-        except Fail as error:
-            if "unsafe tar path" not in str(error):
-                raise
-        else:
-            raise Fail("safe tar extraction accepted a parent traversal")
+        def reject_unsafe_archive(
+            label: str, members: list[tarfile.TarInfo], expected_error: str
+        ) -> None:
+            unsafe = artifacts / f"unsafe-{label}.tar.gz"
+            with tarfile.open(unsafe, "w:gz") as archive:
+                for member in members:
+                    archive.addfile(member)
+            try:
+                safe_extract_regular_tar(unsafe, tmp_path / f"unsafe-{label}-extract")
+            except Fail as error:
+                if expected_error not in str(error):
+                    raise
+            else:
+                raise Fail(f"safe tar extraction accepted unsafe archive shape: {label}")
+
+        for label, name in (
+            ("absolute", "/escape"),
+            ("parent", "../escape"),
+            ("dot", "./escape"),
+            ("empty-component", "dir//escape"),
+            ("space", "space name"),
+            ("control", "line\nbreak"),
+        ):
+            reject_unsafe_archive(label, [tarfile.TarInfo(name)], "unsafe tar path")
+        reject_unsafe_archive(
+            "duplicate",
+            [tarfile.TarInfo("duplicate"), tarfile.TarInfo("duplicate")],
+            "duplicate tar path",
+        )
+        for label, entry_type in (
+            ("symlink", tarfile.SYMTYPE),
+            ("hardlink", tarfile.LNKTYPE),
+            ("character-device", tarfile.CHRTYPE),
+            ("block-device", tarfile.BLKTYPE),
+            ("fifo", tarfile.FIFOTYPE),
+        ):
+            member = tarfile.TarInfo(label)
+            member.type = entry_type
+            reject_unsafe_archive(label, [member], "unsupported tar entry type")
 
         release_artifacts = tmp_path / "release-artifacts"
         release_branch = tmp_path / "release-branch"
