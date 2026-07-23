@@ -32,7 +32,7 @@ import urllib.request
 REPO = "M-Adoo/remote-dev-bin"
 SOURCE_REPO = "M-Adoo/remote-dev"
 HOST_BUNDLE_SCHEMA_VERSION = 1
-FIRSTBOOT_SCHEMA_VERSION = 3
+FIRSTBOOT_SCHEMA_VERSION = 4
 HOST_GROUPS_CATALOG_SCHEMA_VERSION = 3
 HOST_DEFAULT_SHELL_CONTRACT_ID = "remote-dev-default-shell-v2"
 HOST_DEFAULT_SHELL_GROUP_ID = "default-dev-shell-prefill"
