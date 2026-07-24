@@ -1,31 +1,31 @@
 {
   "build": {
-    "generated_at": "2026-07-24T04:31:30Z",
+    "generated_at": "2026-07-24T05:34:54Z",
     "kind": "host-service-image",
     "platform": "linux/amd64",
     "schema_version": 1,
-    "sha256": "4d81a3dc398da910b45d52b0c76c2017cae5a315c9ea538507cc2f4c15cdcf6b",
-    "source_ref": "remote-dev-bin-test/b9f19b022f5d-1784867254",
+    "sha256": "f79f6f902df3982634db48d4e15d9638f671f98df75482988a42c782f5262d39",
+    "source_ref": "remote-dev-bin-test/fe48aaa7f7c9-1784871070",
     "source_repo": "M-Adoo/remote-dev",
-    "source_sha": "b9f19b022f5d0666e20019c25d37fecf0c99b4c7",
+    "source_sha": "fe48aaa7f7c90946c41df5bf6fc42f3928d093ba",
     "tarball": "host-service-linux-amd64.tar.zst",
     "target": "host-service-test"
   },
   "cloud": "test",
-  "deployed_image": "us-west1-docker.pkg.dev/remote-dev-host-test/remote-dev/host-service@sha256:fabe1c2de7d5e388ec51e61573010e3c36c092d052d594eeeda7316c65d25b47",
+  "deployed_image": "us-west1-docker.pkg.dev/remote-dev-host-test/remote-dev/host-service@sha256:223a02bfe9c7f8f372cff34b550377367670a314b02487a1b88fe4a43926598a",
   "deployment": {
     "platform": "cloud-run",
     "region": "us-west1",
     "service": "remote-dev-host-service"
   },
-  "digest": "sha256:fabe1c2de7d5e388ec51e61573010e3c36c092d052d594eeeda7316c65d25b47",
-  "generated_at": "2026-07-24T04:35:01Z",
-  "image": "us-west1-docker.pkg.dev/remote-dev-host-test/remote-dev/host-service:test-b9f19b022f5d",
+  "digest": "sha256:223a02bfe9c7f8f372cff34b550377367670a314b02487a1b88fe4a43926598a",
+  "generated_at": "2026-07-24T05:38:17Z",
+  "image": "us-west1-docker.pkg.dev/remote-dev-host-test/remote-dev/host-service:test-fe48aaa7f7c9",
   "project": "remote-dev-host-test",
   "schema_version": 1,
-  "source_ref": "remote-dev-bin-test/b9f19b022f5d-1784867254",
+  "source_ref": "remote-dev-bin-test/fe48aaa7f7c9-1784871070",
   "source_repo": "M-Adoo/remote-dev",
-  "source_sha": "b9f19b022f5d0666e20019c25d37fecf0c99b4c7",
+  "source_sha": "fe48aaa7f7c90946c41df5bf6fc42f3928d093ba",
   "target": "host-service-test",
-  "workflow_run_id": "30066850570"
+  "workflow_run_id": "30069648701"
 }
