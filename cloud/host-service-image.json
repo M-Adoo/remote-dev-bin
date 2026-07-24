@@ -1,0 +1,31 @@
+{
+  "build": {
+    "generated_at": "2026-07-24T03:55:31Z",
+    "kind": "host-service-image",
+    "platform": "linux/amd64",
+    "schema_version": 1,
+    "sha256": "64a2cd60af0ff6df0fe6a24ae015b2fceb9734112468b06d98d0b3ddd9889fcc",
+    "source_ref": "remote-dev-bin-test/ead9f3ef07ea-1784865108",
+    "source_repo": "M-Adoo/remote-dev",
+    "source_sha": "ead9f3ef07ea919b141d6e4bcfff3f5146d7db95",
+    "tarball": "host-service-linux-amd64.tar.zst",
+    "target": "host-service-test"
+  },
+  "cloud": "test",
+  "deployed_image": "us-west1-docker.pkg.dev/remote-dev-host-test/remote-dev/host-service@sha256:b46fb4eb5e5c5b160c58745f34eb64244314cd0331202fb42f66e60b740abc3f",
+  "deployment": {
+    "platform": "cloud-run",
+    "region": "us-west1",
+    "service": "remote-dev-host-service"
+  },
+  "digest": "sha256:b46fb4eb5e5c5b160c58745f34eb64244314cd0331202fb42f66e60b740abc3f",
+  "generated_at": "2026-07-24T03:59:22Z",
+  "image": "us-west1-docker.pkg.dev/remote-dev-host-test/remote-dev/host-service:test-ead9f3ef07ea",
+  "project": "remote-dev-host-test",
+  "schema_version": 1,
+  "source_ref": "remote-dev-bin-test/ead9f3ef07ea-1784865108",
+  "source_repo": "M-Adoo/remote-dev",
+  "source_sha": "ead9f3ef07ea919b141d6e4bcfff3f5146d7db95",
+  "target": "host-service-test",
+  "workflow_run_id": "30065296227"
+}

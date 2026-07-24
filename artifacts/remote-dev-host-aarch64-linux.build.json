@@ -1,0 +1,15 @@
+{
+  "arch": "aarch64",
+  "artifact": "remote-dev-host-aarch64-linux",
+  "bundle_schema_version": 1,
+  "firstboot_schema_version": 4,
+  "kind": "host-bundle",
+  "schema_version": 1,
+  "sha256": "a96861b2cf2bb23cde38ab4eb475b06c576d5d6ff7f23782effceab514791c6d",
+  "source_ref": "remote-dev-bin-test/ead9f3ef07ea-1784865108",
+  "source_repo": "M-Adoo/remote-dev",
+  "source_sha": "ead9f3ef07ea919b141d6e4bcfff3f5146d7db95",
+  "system": "aarch64-linux",
+  "tarball": "artifacts/remote-dev-host-aarch64-linux.tar.gz",
+  "target": "host-service-test"
+}
