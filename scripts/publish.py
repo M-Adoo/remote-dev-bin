@@ -2601,11 +2601,35 @@ def assert_successful_test_run_delete_workflow(workflow: str) -> None:
     for source in ("Publish Test Artifacts", "Cleanup HostService Test Artifacts"):
         if source not in workflow:
             raise Fail(f"successful test run deleter must watch {source}")
-    if "github.event.workflow_run.conclusion == 'success'" not in workflow:
+    if "  delete:\n    if:" in workflow:
+        raise Fail("successful test run deleter must clean prior records for every source conclusion")
+    prior_run_cleanup = workflow_step(
+        workflow,
+        "- name: Delete prior run deletion records",
+        "successful test run deleter",
+    )
+    self_runs = (
+        'repos/$GITHUB_REPOSITORY/actions/workflows/'
+        'delete-successful-test-run.yml/runs'
+    )
+    if self_runs not in prior_run_cleanup:
+        raise Fail("successful test run deleter must enumerate its own completed runs")
+    if "-f status=completed" not in prior_run_cleanup:
+        raise Fail("successful test run deleter must only enumerate completed prior runs")
+    if '"$run_id" = "$GITHUB_RUN_ID"' not in prior_run_cleanup:
+        raise Fail("successful test run deleter must preserve its active run")
+    if 'gh run delete "$run_id"' not in prior_run_cleanup:
+        raise Fail("successful test run deleter must delete prior completed runs")
+    source_run_cleanup = workflow_step(
+        workflow,
+        "- name: Delete successful test run record",
+        "successful test run deleter",
+    )
+    if "github.event.workflow_run.conclusion == 'success'" not in source_run_cleanup:
         raise Fail("successful test run deleter must only delete successful source runs")
     if "github.event.workflow_run.id" not in workflow:
         raise Fail("successful test run deleter must delete the completed source run id")
-    if 'gh run delete "$SOURCE_RUN_ID"' not in workflow:
+    if 'gh run delete "$SOURCE_RUN_ID"' not in source_run_cleanup:
         raise Fail("successful test run deleter must delete SOURCE_RUN_ID")
     if 'gh run delete "$GITHUB_RUN_ID"' in workflow:
         raise Fail("successful test run deleter must not try to delete its active run")

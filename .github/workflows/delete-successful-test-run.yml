@@ -13,10 +13,29 @@ permissions:
 
 jobs:
   delete:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Delete prior run deletion records
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/delete-successful-test-run.yml/runs" \
+            -f status=completed \
+            -F per_page=100 \
+            --paginate \
+            --jq '.workflow_runs[].id' |
+          while IFS= read -r run_id; do
+            [ -n "$run_id" ] || continue
+            if [ "$run_id" = "$GITHUB_RUN_ID" ]; then
+              continue
+            fi
+            echo "Deleting prior run deletion record $run_id"
+            gh run delete "$run_id" --repo "$GITHUB_REPOSITORY"
+          done
+
       - name: Delete successful test run record
+        if: ${{ github.event.workflow_run.conclusion == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
