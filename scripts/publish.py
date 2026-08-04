@@ -2508,7 +2508,11 @@ def workflow_step(text: str, step_name: str, context: str) -> str:
 
 
 def assert_publish_workflow_order(
-    name: str, workflow: str, branch_push: str, pre_resolve_marker: str
+    name: str,
+    workflow: str,
+    branch_push: str,
+    pre_resolve_marker: str,
+    refresh_provider_spots: bool,
 ) -> None:
     push_image = required_index(workflow, "- name: Push image", name)
     render_tree = required_index(workflow, "publish.py render-tree", name)
@@ -2524,13 +2528,10 @@ def assert_publish_workflow_order(
     verify_remote_cache_command = required_index(workflow, "publish.py verify-remote-cache", name)
     deploy_step = required_index(workflow, "- name: Deploy Cloud Run", name)
     gcloud_deploy = required_index(workflow, "gcloud run deploy", name)
-    provider_refresh_step = required_index(workflow, "- name: Refresh provider spots", name)
-    provider_refresh_command = required_index(workflow, "/v1/host-admin/spots/refresh", name)
-    provider_spots_verify = required_index(workflow, "provider-spots.json", name)
     revision_cleanup_step = required_index(workflow, "- name: Cleanup Cloud Run revisions", name)
     revision_cleanup_command = required_index(workflow, "publish.py cleanup-cloud-run-revisions", name)
     pinned_env = "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF=${{ steps.artifact.outputs.ref }}"
-    if not (
+    common_order = (
         push_image
         < render_tree
         < pre_resolve
@@ -2541,16 +2542,29 @@ def assert_publish_workflow_order(
         < verify_remote_cache_command
         < deploy_step
         < gcloud_deploy
-        < provider_refresh_step
-        < provider_refresh_command
-        < provider_spots_verify
-        < revision_cleanup_step
-        < revision_cleanup_command
-    ):
+    )
+    if refresh_provider_spots:
+        provider_refresh_step = required_index(workflow, "- name: Refresh provider spots", name)
+        provider_refresh_command = required_index(workflow, "/v1/host-admin/spots/refresh", name)
+        provider_spots_verify = required_index(workflow, "provider-spots.json", name)
+        ordered = (
+            common_order
+            and gcloud_deploy
+            < provider_refresh_step
+            < provider_refresh_command
+            < provider_spots_verify
+            < revision_cleanup_step
+            < revision_cleanup_command
+        )
+    else:
+        if "Refresh provider spots" in workflow or "/v1/host-admin/spots/refresh" in workflow:
+            raise Fail(f"{name} must leave provider spot refresh to periodic maintenance")
+        ordered = common_order and gcloud_deploy < revision_cleanup_step < revision_cleanup_command
+    if not ordered:
         raise Fail(
             f"{name} must push the image, render the target branch, resolve the final "
-            "artifact SHA, push and verify the branch/cache, deploy Cloud Run, refresh and verify "
-            "provider spots, then clean up revisions"
+            "artifact SHA, push and verify the branch/cache, deploy Cloud Run, then clean up "
+            "revisions"
         )
     if "--keep 20" not in workflow:
         raise Fail(f"{name} must keep the latest 20 Cloud Run revisions")
@@ -2559,12 +2573,16 @@ def assert_publish_workflow_order(
             raise Fail(f"{name} must fail when Cloud Run revision cleanup fails")
     if pinned_env not in workflow:
         raise Fail(f"{name} must pin Cloud Run to the resolved remote-dev-bin artifact ref")
-    if ".refresh.failed == 0" not in workflow:
-        raise Fail(f"{name} must fail when provider spot refresh reports a failure")
-    if "all(. == $sha)" not in workflow:
-        raise Fail(f"{name} must verify every provider spot pins the published artifact SHA")
-    if "--no-allow-unauthenticated" in workflow and "gcloud auth print-identity-token" not in workflow:
-        raise Fail(f"{name} must authenticate protected provider spot refresh requests")
+    if refresh_provider_spots:
+        if ".refresh.failed == 0" not in workflow:
+            raise Fail(f"{name} must fail when provider spot refresh reports a failure")
+        if "all(. == $sha)" not in workflow:
+            raise Fail(f"{name} must verify every provider spot pins the published artifact SHA")
+        if (
+            "--no-allow-unauthenticated" in workflow
+            and "gcloud auth print-identity-token" not in workflow
+        ):
+            raise Fail(f"{name} must authenticate protected provider spot refresh requests")
     if "steps.deploy.outputs" in workflow:
         raise Fail(f"{name} must render from the image digest step, not a deploy step")
     if "- name: Push image and deploy Cloud Run" in workflow:
@@ -2685,12 +2703,14 @@ def assert_workflows(repo_root: Path) -> None:
         test,
         'git push --force origin "$TARGET_BRANCH"',
         "- name: Apply host-service-test retention",
+        False,
     )
     assert_publish_workflow_order(
         "publish-release",
         release,
         'git push origin "$TARGET_BRANCH"',
         "- name: Commit release branch",
+        True,
     )
 
 
