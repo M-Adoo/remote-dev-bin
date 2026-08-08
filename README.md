@@ -56,3 +56,10 @@ Build jobs have private source read authority only. The publish job receives
 build outputs and bootstrap resources but no private repository token. Cloud
 authority, signing authority, artifact-branch write authority, and deployment
 remain in the publish job.
+
+Both HostService deployments allow unauthenticated Cloud Run invocation because
+the V7 application owns per-route Accounts JWT and Google OIDC authorization.
+The production publisher pins the exact deployer service account, mints Google
+OIDC for `https://adoo.dev`, and performs release checks only through
+`/v1/ops/provider-spots` and `/v1/ops/provider-spots/refresh`; it does not reuse
+Web Host Admin credentials or routes.

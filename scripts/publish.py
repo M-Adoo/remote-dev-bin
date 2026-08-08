@@ -2545,7 +2545,7 @@ def assert_publish_workflow_order(
     )
     if refresh_provider_spots:
         provider_refresh_step = required_index(workflow, "- name: Refresh provider spots", name)
-        provider_refresh_command = required_index(workflow, "/v1/host-admin/spots/refresh", name)
+        provider_refresh_command = required_index(workflow, "/v1/ops/provider-spots/refresh", name)
         provider_spots_verify = required_index(workflow, "provider-spots.json", name)
         ordered = (
             common_order
@@ -2557,7 +2557,7 @@ def assert_publish_workflow_order(
             < revision_cleanup_command
         )
     else:
-        if "Refresh provider spots" in workflow or "/v1/host-admin/spots/refresh" in workflow:
+        if "Refresh provider spots" in workflow or "/v1/ops/provider-spots/refresh" in workflow:
             raise Fail(f"{name} must leave provider spot refresh to periodic maintenance")
         ordered = common_order and gcloud_deploy < revision_cleanup_step < revision_cleanup_command
     if not ordered:
@@ -2573,16 +2573,23 @@ def assert_publish_workflow_order(
             raise Fail(f"{name} must fail when Cloud Run revision cleanup fails")
     if pinned_env not in workflow:
         raise Fail(f"{name} must pin Cloud Run to the resolved remote-dev-bin artifact ref")
+    if "--allow-unauthenticated" not in workflow or "--no-allow-unauthenticated" in workflow:
+        raise Fail(f"{name} must expose Cloud Run ingress for application-owned authentication")
     if refresh_provider_spots:
         if ".refresh.failed == 0" not in workflow:
             raise Fail(f"{name} must fail when provider spot refresh reports a failure")
         if "all(. == $sha)" not in workflow:
             raise Fail(f"{name} must verify every provider spot pins the published artifact SHA")
-        if (
-            "--no-allow-unauthenticated" in workflow
-            and "gcloud auth print-identity-token" not in workflow
-        ):
-            raise Fail(f"{name} must authenticate protected provider spot refresh requests")
+        if 'HOST_SERVICE_PUBLIC_ORIGIN: https://adoo.dev' not in workflow:
+            raise Fail(f"{name} must pin the production Google OIDC audience")
+        identity_token = (
+            'gcloud auth print-identity-token --audiences '
+            '"$HOST_SERVICE_PUBLIC_ORIGIN"'
+        )
+        if identity_token not in workflow:
+            raise Fail(f"{name} must authenticate provider spot ops with Google OIDC")
+        if "/v1/host-admin/spots" in workflow:
+            raise Fail(f"{name} must not reuse Host Admin routes for release checks")
     if "steps.deploy.outputs" in workflow:
         raise Fail(f"{name} must render from the image digest step, not a deploy step")
     if "- name: Push image and deploy Cloud Run" in workflow:
@@ -2689,6 +2696,10 @@ def assert_workflows(repo_root: Path) -> None:
         for resource in ("provider-bootstrap-run", "host-inspect.sh", "leasectl.sh"):
             if resource not in workflow:
                 raise Fail(f"{workflow_name} must export host bundle resource {resource}")
+        if "EXPECTED_DEPLOYER_SERVICE_ACCOUNT" not in workflow:
+            raise Fail(f"{workflow_name} must pin the exact deployer service account")
+        if 'GCP_DEPLOYER_SERVICE_ACCOUNT must exactly match' not in workflow:
+            raise Fail(f"{workflow_name} must fail closed on deployer identity drift")
     if "git add -A" not in test or "git add -A" not in release:
         raise Fail("publish workflows must stage generated deletions with git add -A")
     for line in combined.splitlines():

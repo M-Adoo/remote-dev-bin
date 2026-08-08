@@ -24,6 +24,8 @@ env:
   TARGET: host-service-test
   TARGET_BRANCH: host-service-test
   TARGET_PROJECT: remote-dev-host-test
+  EXPECTED_DEPLOYER_SERVICE_ACCOUNT: remote-dev-github-deployer@remote-dev-host-test.iam.gserviceaccount.com
+  DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
   REGION: us-west1
   SERVICE: remote-dev-host-service
   IMAGE_REPOSITORY: remote-dev
@@ -241,6 +243,13 @@ jobs:
       id-token: write
       actions: write
     steps:
+      - name: Confirm deployer service account
+        run: |
+          if [ "$DEPLOYER_SERVICE_ACCOUNT" != "$EXPECTED_DEPLOYER_SERVICE_ACCOUNT" ]; then
+            echo "GCP_DEPLOYER_SERVICE_ACCOUNT must exactly match $EXPECTED_DEPLOYER_SERVICE_ACCOUNT" >&2
+            exit 1
+          fi
+
       - name: Checkout publisher
         uses: actions/checkout@v4
         with:

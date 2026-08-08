@@ -17,6 +17,9 @@ env:
   TARGET_BRANCH: host-service-release
   TARGET_PROJECT: remote-dev-host-prod
   REMOTE_DEV_CONFIRM_PROD: ${{ vars.REMOTE_DEV_CONFIRM_PROD }}
+  HOST_SERVICE_PUBLIC_ORIGIN: https://adoo.dev
+  EXPECTED_DEPLOYER_SERVICE_ACCOUNT: remote-dev-github-deployer@remote-dev-host-prod.iam.gserviceaccount.com
+  DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
   REGION: us-west1
   SERVICE: remote-dev-host-service
   IMAGE_REPOSITORY: remote-dev
@@ -240,6 +243,10 @@ jobs:
             echo "REMOTE_DEV_CONFIRM_PROD must match $TARGET_PROJECT" >&2
             exit 1
           fi
+          if [ "$DEPLOYER_SERVICE_ACCOUNT" != "$EXPECTED_DEPLOYER_SERVICE_ACCOUNT" ]; then
+            echo "GCP_DEPLOYER_SERVICE_ACCOUNT must exactly match $EXPECTED_DEPLOYER_SERVICE_ACCOUNT" >&2
+            exit 1
+          fi
 
       - name: Checkout publisher
         uses: actions/checkout@v4
@@ -373,7 +380,7 @@ jobs:
             --concurrency 5 \
             --timeout 600 \
             --max-instances 20 \
-            --no-allow-unauthenticated \
+            --allow-unauthenticated \
             --quiet
 
       - name: Refresh provider spots
@@ -386,16 +393,16 @@ jobs:
             https://*) ;;
             *) echo "Cloud Run status.url must be https, got $SERVICE_URL" >&2; exit 1 ;;
           esac
-          IDENTITY_TOKEN="$(gcloud auth print-identity-token --audiences "$SERVICE_URL")"
+          IDENTITY_TOKEN="$(gcloud auth print-identity-token --audiences "$HOST_SERVICE_PUBLIC_ORIGIN")"
           test -n "$IDENTITY_TOKEN"
           curl -fsS -X POST \
             -H "authorization: Bearer $IDENTITY_TOKEN" \
             -H 'content-length: 0' \
-            "$SERVICE_URL/v1/host-admin/spots/refresh" \
+            "$SERVICE_URL/v1/ops/provider-spots/refresh" \
             -o "$RUNNER_TEMP/provider-spots-refresh.json"
           jq -e '.refresh.failed == 0' "$RUNNER_TEMP/provider-spots-refresh.json"
           curl -fsS -H "authorization: Bearer $IDENTITY_TOKEN" \
-            "$SERVICE_URL/v1/host-admin/spots" \
+            "$SERVICE_URL/v1/ops/provider-spots" \
             -o "$RUNNER_TEMP/provider-spots.json"
           jq -e --arg sha '${{ steps.artifact.outputs.sha }}' \
             '([.providers[].spots[].launch.artifact_sha] | length > 0 and all(. == $sha))' \
