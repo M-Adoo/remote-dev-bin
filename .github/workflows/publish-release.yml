@@ -311,6 +311,36 @@ jobs:
       - name: Install gcloud
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Verify production runtime secrets
+        run: |
+          RUNTIME_SERVICE_ACCOUNT="remote-dev-host-service@$TARGET_PROJECT.iam.gserviceaccount.com"
+          for SECRET in \
+            remote-dev-prod-accounts-owner-sub \
+            remote-dev-prod-accounts-login-token-key
+          do
+            gcloud secrets describe "$SECRET" \
+              --project "$TARGET_PROJECT" \
+              --format='value(name)' > /dev/null
+            ENABLED_VERSION="$(gcloud secrets versions list "$SECRET" \
+              --project "$TARGET_PROJECT" \
+              --filter='state=ENABLED' \
+              --limit=1 \
+              --format='value(name)')"
+            if [ -z "$ENABLED_VERSION" ]; then
+              echo "$SECRET must have an enabled version" >&2
+              exit 1
+            fi
+            ACCESSOR="$(gcloud secrets get-iam-policy "$SECRET" \
+              --project "$TARGET_PROJECT" \
+              --flatten='bindings[].members' \
+              --filter="bindings.role:roles/secretmanager.secretAccessor AND bindings.members:serviceAccount:$RUNTIME_SERVICE_ACCOUNT" \
+              --format='value(bindings.members)')"
+            if [ "$ACCESSOR" != "serviceAccount:$RUNTIME_SERVICE_ACCOUNT" ]; then
+              echo "$SECRET must grant secretAccessor to the exact runtime service account" >&2
+              exit 1
+            fi
+          done
+
       - name: Configure Artifact Registry auth
         run: gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
 

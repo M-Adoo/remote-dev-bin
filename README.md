@@ -60,6 +60,12 @@ build outputs and bootstrap resources but no private repository token. Cloud
 authority, signing authority, artifact-branch write authority, and deployment
 remain in the publish job.
 
+Before a production deployment, the protected publish job checks that the
+Accounts owner and login-token-key Secrets exist, have enabled versions, and
+grant `secretAccessor` only as configured to the exact HostService runtime
+service account. The publisher reads metadata and IAM policy only; it never
+reads Secret payloads or creates production Secrets.
+
 Both HostService deployments allow unauthenticated Cloud Run invocation because
 the V7 application owns per-route Accounts JWT and Google OIDC authorization.
 Each deployment must pass a public `/ready` check reporting runtime API version

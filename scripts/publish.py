@@ -2700,6 +2700,22 @@ def assert_workflows(repo_root: Path) -> None:
         raise Fail("publish-test must target host-service-test")
     if "REMOTE_DEV_CONFIRM_PROD" not in release or "remote-dev-host-prod" not in release:
         raise Fail("publish-release must carry the prod confirmation guard")
+    secret_check = workflow_step(
+        release,
+        "- name: Verify production runtime secrets",
+        "publish-release",
+    )
+    for marker in (
+        "remote-dev-prod-accounts-owner-sub",
+        "remote-dev-prod-accounts-login-token-key",
+        "gcloud secrets versions list",
+        "roles/secretmanager.secretAccessor",
+        "remote-dev-host-service@$TARGET_PROJECT.iam.gserviceaccount.com",
+    ):
+        if marker not in secret_check:
+            raise Fail(f"publish-release runtime secret preflight is missing {marker!r}")
+    if "versions access" in secret_check or "latest" in secret_check:
+        raise Fail("publish-release must validate Secret metadata without reading payloads")
     if "contents: write" in test.split("publish:", 1)[0]:
         raise Fail("test build jobs must not receive contents write")
     for workflow_name, workflow in (("publish-test", test), ("publish-release", release)):
