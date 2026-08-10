@@ -2528,6 +2528,8 @@ def assert_publish_workflow_order(
     verify_remote_cache_command = required_index(workflow, "publish.py verify-remote-cache", name)
     deploy_step = required_index(workflow, "- name: Deploy Cloud Run", name)
     gcloud_deploy = required_index(workflow, "gcloud run deploy", name)
+    readiness_step = required_index(workflow, "- name: Verify V7 readiness", name)
+    readiness_check = required_index(workflow, ".runtime_api_version == 7", name)
     revision_cleanup_step = required_index(workflow, "- name: Cleanup Cloud Run revisions", name)
     revision_cleanup_command = required_index(workflow, "publish.py cleanup-cloud-run-revisions", name)
     pinned_env = "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF=${{ steps.artifact.outputs.ref }}"
@@ -2542,6 +2544,8 @@ def assert_publish_workflow_order(
         < verify_remote_cache_command
         < deploy_step
         < gcloud_deploy
+        < readiness_step
+        < readiness_check
     )
     if refresh_provider_spots:
         provider_refresh_step = required_index(workflow, "- name: Refresh provider spots", name)
@@ -2549,7 +2553,7 @@ def assert_publish_workflow_order(
         provider_spots_verify = required_index(workflow, "provider-spots.json", name)
         ordered = (
             common_order
-            and gcloud_deploy
+            and readiness_check
             < provider_refresh_step
             < provider_refresh_command
             < provider_spots_verify
@@ -2559,7 +2563,7 @@ def assert_publish_workflow_order(
     else:
         if "Refresh provider spots" in workflow or "/v1/ops/provider-spots/refresh" in workflow:
             raise Fail(f"{name} must leave provider spot refresh to periodic maintenance")
-        ordered = common_order and gcloud_deploy < revision_cleanup_step < revision_cleanup_command
+        ordered = common_order and readiness_check < revision_cleanup_step < revision_cleanup_command
     if not ordered:
         raise Fail(
             f"{name} must push the image, render the target branch, resolve the final "
@@ -2683,6 +2687,15 @@ def assert_workflows(repo_root: Path) -> None:
         raise Fail("publish-release must use the protected prod environment")
     if "TARGET_BRANCH: host-service-release" not in release:
         raise Fail("publish-release must target host-service-release")
+    for marker in (
+        "concurrency:\n  group: publish-release\n  cancel-in-progress: false",
+        "- name: Prepare append-only release branch",
+        'git -C publisher ls-remote --exit-code --heads origin "$TARGET_BRANCH"',
+        'git -C published switch --orphan "$TARGET_BRANCH"',
+        "git -C published rm -rf .",
+    ):
+        if marker not in release:
+            raise Fail(f"publish-release cannot safely initialize its artifact branch: missing {marker!r}")
     if "TARGET_BRANCH: host-service-test" not in test:
         raise Fail("publish-test must target host-service-test")
     if "REMOTE_DEV_CONFIRM_PROD" not in release or "remote-dev-host-prod" not in release:

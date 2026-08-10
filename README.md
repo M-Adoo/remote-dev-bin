@@ -50,7 +50,10 @@ defaults to `aarch64`, and publishes only to `host-service-test` and
 `Publish Release Artifacts` is manual, publishes only to
 `host-service-release` and `remote-dev-host-prod`, builds the full matrix, and
 requires the protected `prod` environment plus
-`REMOTE_DEV_CONFIRM_PROD=remote-dev-host-prod`.
+`REMOTE_DEV_CONFIRM_PROD=remote-dev-host-prod`. Its first approved run creates
+the artifact-only `host-service-release` branch when absent; later runs append
+without force-pushing, and release runs are serialized to avoid initialization
+races.
 
 Build jobs have private source read authority only. The publish job receives
 build outputs and bootstrap resources but no private repository token. Cloud
@@ -59,6 +62,8 @@ remain in the publish job.
 
 Both HostService deployments allow unauthenticated Cloud Run invocation because
 the V7 application owns per-route Accounts JWT and Google OIDC authorization.
+Each deployment must pass a public `/ready` check reporting runtime API version
+7 before the workflow continues.
 The production publisher pins the exact deployer service account, mints Google
 OIDC for `https://adoo.dev`, and performs release checks only through
 `/v1/ops/provider-spots` and `/v1/ops/provider-spots/refresh`; it does not reuse

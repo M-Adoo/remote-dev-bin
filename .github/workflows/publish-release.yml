@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
 env:
   TARGET: release
   TARGET_BRANCH: host-service-release
@@ -252,12 +256,36 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: publisher
+          fetch-depth: 0
 
-      - name: Checkout target branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TARGET_BRANCH }}
-          path: published
+      - name: Prepare append-only release branch
+        run: |
+          set +e
+          git -C publisher ls-remote --exit-code --heads origin "$TARGET_BRANCH" \
+            > "$RUNNER_TEMP/target-branch"
+          STATUS="$?"
+          set -e
+          case "$STATUS" in
+            0)
+              TARGET_SHA="$(awk '{print $1}' "$RUNNER_TEMP/target-branch")"
+              if ! [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+                echo "release branch must resolve to one full commit SHA" >&2
+                exit 1
+              fi
+              git -C publisher fetch --no-tags origin "$TARGET_SHA"
+              git -C publisher worktree add --detach ../published "$TARGET_SHA"
+              git -C published switch -c "$TARGET_BRANCH"
+              ;;
+            2)
+              git -C publisher worktree add --detach ../published
+              git -C published switch --orphan "$TARGET_BRANCH"
+              git -C published rm -rf .
+              ;;
+            *)
+              echo "failed to inspect release branch (git exit $STATUS)" >&2
+              exit "$STATUS"
+              ;;
+          esac
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -382,6 +410,20 @@ jobs:
             --max-instances 20 \
             --allow-unauthenticated \
             --quiet
+
+      - name: Verify V7 readiness
+        run: |
+          SERVICE_URL="$(gcloud run services describe "$SERVICE" \
+            --project "$TARGET_PROJECT" \
+            --region "$REGION" \
+            --format='value(status.url)')"
+          case "$SERVICE_URL" in
+            https://*) ;;
+            *) echo "Cloud Run status.url must be https, got $SERVICE_URL" >&2; exit 1 ;;
+          esac
+          curl -fsS "$SERVICE_URL/ready" -o "$RUNNER_TEMP/ready.json"
+          jq -e '.deployment == "prod" and .runtime_api_version == 7 and .status == "ok"' \
+            "$RUNNER_TEMP/ready.json"
 
       - name: Refresh provider spots
         run: |

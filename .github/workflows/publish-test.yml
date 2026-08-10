@@ -394,6 +394,20 @@ jobs:
             --allow-unauthenticated \
             --quiet
 
+      - name: Verify V7 readiness
+        run: |
+          SERVICE_URL="$(gcloud run services describe "$SERVICE" \
+            --project "$TARGET_PROJECT" \
+            --region "$REGION" \
+            --format='value(status.url)')"
+          case "$SERVICE_URL" in
+            https://*) ;;
+            *) echo "Cloud Run status.url must be https, got $SERVICE_URL" >&2; exit 1 ;;
+          esac
+          curl -fsS "$SERVICE_URL/ready" -o "$RUNNER_TEMP/ready.json"
+          jq -e '.deployment == "test" and .runtime_api_version == 7 and .status == "ok"' \
+            "$RUNNER_TEMP/ready.json"
+
       - name: Cleanup Cloud Run revisions
         run: |
           python3 publisher/scripts/publish.py cleanup-cloud-run-revisions \
