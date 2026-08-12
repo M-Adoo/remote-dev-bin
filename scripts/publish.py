@@ -2011,7 +2011,19 @@ def cmd_cleanup_test_branch(args: argparse.Namespace) -> None:
     # after creating an orphan branch. This never runs for main.
     run(["git", "checkout", "--orphan", "host-service-test-retained"], cwd=branch_dir)
     run(["git", "add", "-A"], cwd=branch_dir)
-    run(["git", "commit", "-m", "host-service-test: retain latest generated artifact tree"], cwd=branch_dir)
+    run(
+        [
+            "git",
+            "-c",
+            "user.name=github-actions[bot]",
+            "-c",
+            "user.email=github-actions[bot]@users.noreply.github.com",
+            "commit",
+            "-m",
+            "host-service-test: retain latest generated artifact tree",
+        ],
+        cwd=branch_dir,
+    )
     run(["git", "branch", "-M", "host-service-test-retained", config.branch], cwd=branch_dir)
 
 
@@ -2967,6 +2979,61 @@ def assert_github_test_deployment_cleanup_model() -> None:
         raise Fail("GitHub deployment cleanup must reject non-JSON GitHub API output")
 
 
+def assert_test_branch_cleanup_without_git_identity() -> None:
+    with tempfile.TemporaryDirectory(prefix="cleanup-test-branch-") as raw_temp:
+        branch_dir = Path(raw_temp) / "published"
+        branch_dir.mkdir()
+        run(["git", "init", "--quiet", "-b", "host-service-test"], cwd=branch_dir)
+        artifact = branch_dir / "artifact.txt"
+        fixture_commit = [
+            "git",
+            "-c",
+            "user.name=test fixture",
+            "-c",
+            "user.email=test-fixture@example.invalid",
+            "commit",
+            "--quiet",
+        ]
+        for content in ("first artifact tree\n", "latest artifact tree\n"):
+            artifact.write_text(content)
+            run(["git", "add", "artifact.txt"], cwd=branch_dir)
+            run([*fixture_commit, "-m", content.strip()], cwd=branch_dir)
+        run(["git", "config", "user.name", ""], cwd=branch_dir)
+        run(["git", "config", "user.email", ""], cwd=branch_dir)
+        run(["git", "config", "user.useConfigOnly", "true"], cwd=branch_dir)
+
+        cmd_cleanup_test_branch(
+            argparse.Namespace(
+                branch_dir=str(branch_dir),
+                branch="host-service-test",
+                max_commits=1,
+                max_days=7,
+            )
+        )
+        retained = run(
+            ["git", "rev-list", "--parents", "-n", "1", "host-service-test"],
+            cwd=branch_dir,
+            capture=True,
+        ).split()
+        if len(retained) != 1:
+            raise Fail("retained test artifact commit must be an orphan")
+        identity = run(
+            ["git", "show", "-s", "--format=%an%n%ae%n%cn%n%ce", "host-service-test"],
+            cwd=branch_dir,
+            capture=True,
+        ).splitlines()
+        expected_identity = [
+            "github-actions[bot]",
+            "github-actions[bot]@users.noreply.github.com",
+            "github-actions[bot]",
+            "github-actions[bot]@users.noreply.github.com",
+        ]
+        if identity != expected_identity:
+            raise Fail(f"unexpected retained test artifact commit identity: {identity}")
+        if artifact.read_text() != "latest artifact tree\n":
+            raise Fail("retained test artifact commit changed the generated tree")
+
+
 def cmd_self_test(_: argparse.Namespace) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     flake_template = (repo_root / "templates/flake.nix.in").read_text()
@@ -3185,6 +3252,7 @@ def cmd_self_test(_: argparse.Namespace) -> None:
     assert_workflows(repo_root)
     assert_cloud_run_revision_cleanup_model()
     assert_github_test_deployment_cleanup_model()
+    assert_test_branch_cleanup_without_git_identity()
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         artifacts = tmp_path / "artifacts"
