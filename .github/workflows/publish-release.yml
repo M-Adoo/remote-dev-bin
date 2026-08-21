@@ -442,6 +442,16 @@ jobs:
 
       - name: Verify V7 readiness
         run: |
+          gcloud run services describe "$SERVICE" \
+            --project "$TARGET_PROJECT" \
+            --region "$REGION" \
+            --format=json \
+            > "$RUNNER_TEMP/host-service.json"
+          jq -e --arg ref '${{ steps.artifact.outputs.ref }}' \
+            '([.spec.template.spec.containers[]?.env[]? |
+                select(.name == "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF") |
+                .value] == [$ref])' \
+            "$RUNNER_TEMP/host-service.json"
           SERVICE_URL="$(gcloud run services describe "$SERVICE" \
             --project "$TARGET_PROJECT" \
             --region "$REGION" \
@@ -487,8 +497,13 @@ jobs:
           curl -fsS -H "authorization: Bearer $IDENTITY_TOKEN" \
             "$SERVICE_URL/v1/ops/provider-spots" \
             -o "$RUNNER_TEMP/provider-spots.json"
-          jq -e --arg sha '${{ steps.artifact.outputs.sha }}' \
-            '([.providers[].spots[].launch.artifact_sha] | length > 0 and all(. == $sha))' \
+          jq -e \
+            '(.providers | type == "array") and
+             (.spots | type == "array" and length > 0) and
+             all(.spots[];
+               (.provider | type == "string" and length > 0) and
+               (.native_machine | type == "string" and length > 0) and
+               (.observed_at_ms | type == "number"))' \
             "$RUNNER_TEMP/provider-spots.json"
 
       - name: Cleanup Cloud Run revisions
