@@ -1,0 +1,194 @@
+{
+  "artifacts": [
+    {
+      "arch": "aarch64",
+      "artifact": "remote-dev-aarch64-darwin",
+      "binary": "remote-dev",
+      "bundle_files": [
+        "flake.nix",
+        "flake.lock",
+        "bin/remote-dev"
+      ],
+      "cargo_target": "aarch64-apple-darwin",
+      "generated_at": "2026-08-21T07:35:38Z",
+      "kind": "cli-bundle",
+      "package": "remote-dev",
+      "schema_version": 2,
+      "sha256": "c32148cf219dfb427f86744a0645bea2ee998cfcad35ea16757dd263753a4e55",
+      "source_ref": "remote-dev-bin-test/4f377337334a-1787297582",
+      "source_repo": "M-Adoo/remote-dev",
+      "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
+      "system": "aarch64-darwin",
+      "tarball": "artifacts/remote-dev-aarch64-darwin.tar.gz",
+      "target": "release"
+    },
+    {
+      "arch": "aarch64",
+      "artifact": "remote-dev-aarch64-linux",
+      "binary": "remote-dev",
+      "bundle_files": [
+        "flake.nix",
+        "flake.lock",
+        "bin/remote-dev"
+      ],
+      "cargo_target": "aarch64-unknown-linux-musl",
+      "generated_at": "2026-08-21T07:36:01Z",
+      "kind": "cli-bundle",
+      "package": "remote-dev",
+      "schema_version": 2,
+      "sha256": "e92e55a4dd636ed57e51c13cd4e10dc017d68fb1807c00679e401b2cd813d76d",
+      "source_ref": "remote-dev-bin-test/4f377337334a-1787297582",
+      "source_repo": "M-Adoo/remote-dev",
+      "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
+      "system": "aarch64-linux",
+      "tarball": "artifacts/remote-dev-aarch64-linux.tar.gz",
+      "target": "release"
+    },
+    {
+      "arch": "aarch64",
+      "artifact": "remote-dev-host-aarch64-linux",
+      "bundle_schema_version": 1,
+      "firstboot_schema_version": 5,
+      "kind": "host-bundle",
+      "schema_version": 1,
+      "sha256": "d314409adcc3c23cd4911b332bd20d2c14c94298517ca659bdd654bb1946e259",
+      "source_ref": "remote-dev-bin-test/4f377337334a-1787297582",
+      "source_repo": "M-Adoo/remote-dev",
+      "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
+      "system": "aarch64-linux",
+      "tarball": "artifacts/remote-dev-host-aarch64-linux.tar.gz",
+      "target": "release"
+    },
+    {
+      "arch": "x86_64",
+      "artifact": "remote-dev-host-x86_64-linux",
+      "bundle_schema_version": 1,
+      "firstboot_schema_version": 5,
+      "kind": "host-bundle",
+      "schema_version": 1,
+      "sha256": "2955eda08fe8ee7b8121d114837f69315da1f618192e3cb7efb2bf5d5482ec36",
+      "source_ref": "remote-dev-bin-test/4f377337334a-1787297582",
+      "source_repo": "M-Adoo/remote-dev",
+      "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
+      "system": "x86_64-linux",
+      "tarball": "artifacts/remote-dev-host-x86_64-linux.tar.gz",
+      "target": "release"
+    },
+    {
+      "arch": "x86_64",
+      "artifact": "remote-dev-x86_64-darwin",
+      "binary": "remote-dev",
+      "bundle_files": [
+        "flake.nix",
+        "flake.lock",
+        "bin/remote-dev"
+      ],
+      "cargo_target": "x86_64-apple-darwin",
+      "generated_at": "2026-08-21T07:36:02Z",
+      "kind": "cli-bundle",
+      "package": "remote-dev",
+      "schema_version": 2,
+      "sha256": "ffd62a7a99fd2acc872d44b5cee5f3f85fdeb36c7b325927fe896b336979d6e5",
+      "source_ref": "remote-dev-bin-test/4f377337334a-1787297582",
+      "source_repo": "M-Adoo/remote-dev",
+      "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
+      "system": "x86_64-darwin",
+      "tarball": "artifacts/remote-dev-x86_64-darwin.tar.gz",
+      "target": "release"
+    },
+    {
+      "arch": "x86_64",
+      "artifact": "remote-dev-x86_64-linux",
+      "binary": "remote-dev",
+      "bundle_files": [
+        "flake.nix",
+        "flake.lock",
+        "bin/remote-dev"
+      ],
+      "cargo_target": "x86_64-unknown-linux-musl",
+      "generated_at": "2026-08-21T07:36:58Z",
+      "kind": "cli-bundle",
+      "package": "remote-dev",
+      "schema_version": 2,
+      "sha256": "d165b143643df135d4182c4a349f62b5dbac4c5cedb912cfd9ef3b321c15743f",
+      "source_ref": "remote-dev-bin-test/4f377337334a-1787297582",
+      "source_repo": "M-Adoo/remote-dev",
+      "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
+      "system": "x86_64-linux",
+      "tarball": "artifacts/remote-dev-x86_64-linux.tar.gz",
+      "target": "release"
+    }
+  ],
+  "closure_audit": [
+    {
+      "cache_compressed_bytes": 43554524,
+      "closure_paths": 1,
+      "marker_presence": {
+        "amazon-ssm-agent": false,
+        "git-doc": false,
+        "nix-manual": false,
+        "nixos-manual-html": false
+      },
+      "path_names": [
+        "76y30khba56nmlvk6mfvgac1ndnh8ihn-remote-dev-agent-runtime"
+      ],
+      "system": "x86_64-linux",
+      "top_nar_size_paths": [
+        {
+          "nar_size": 28211808,
+          "path": "/nix/store/76y30khba56nmlvk6mfvgac1ndnh8ihn-remote-dev-agent-runtime"
+        }
+      ],
+      "unsigned_paths": 1
+    },
+    {
+      "cache_compressed_bytes": 43554524,
+      "closure_paths": 1,
+      "marker_presence": {
+        "amazon-ssm-agent": false,
+        "git-doc": false,
+        "nix-manual": false,
+        "nixos-manual-html": false
+      },
+      "path_names": [
+        "z4s353zsb6w45hdlhiwlyhb4i5rhy5cr-remote-dev-agent-runtime"
+      ],
+      "system": "aarch64-linux",
+      "top_nar_size_paths": [
+        {
+          "nar_size": 27164480,
+          "path": "/nix/store/z4s353zsb6w45hdlhiwlyhb4i5rhy5cr-remote-dev-agent-runtime"
+        }
+      ],
+      "unsigned_paths": 1
+    }
+  ],
+  "generated_at": "2026-08-21T07:49:58Z",
+  "host_arches": [
+    "x86_64",
+    "aarch64"
+  ],
+  "host_service_image": "cloud/host-service-image.json",
+  "remote_dev_systems": [
+    "x86_64-linux",
+    "aarch64-linux",
+    "x86_64-darwin",
+    "aarch64-darwin"
+  ],
+  "retention": {
+    "max_commits": null,
+    "max_days": null
+  },
+  "schema_version": 1,
+  "source": {
+    "ref": "remote-dev-bin-test/4f377337334a-1787297582",
+    "repo": "M-Adoo/remote-dev",
+    "sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b"
+  },
+  "target": {
+    "branch": "host-service-release",
+    "cloud": "prod",
+    "name": "release",
+    "project": "remote-dev-host-prod"
+  }
+}
