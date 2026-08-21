@@ -315,7 +315,9 @@ jobs:
           RUNTIME_SERVICE_ACCOUNT="remote-dev-host-service@$TARGET_PROJECT.iam.gserviceaccount.com"
           for SECRET in \
             remote-dev-prod-accounts-owner-sub \
-            remote-dev-prod-accounts-login-token-key
+            remote-dev-prod-accounts-login-token-key \
+            remote-dev-prod-hostctrl-management-key \
+            remote-dev-prod-cloud-provider-aws-credentials
           do
             gcloud secrets describe "$SECRET" \
               --project "$TARGET_PROJECT" \
