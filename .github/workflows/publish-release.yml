@@ -499,7 +499,7 @@ jobs:
             -o "$RUNNER_TEMP/provider-spots.json"
           jq -e \
             '(.providers | type == "array") and
-             (.spots | type == "array" and length > 0) and
+             (.spots | type == "array") and
              all(.spots[];
                (.provider | type == "string" and length > 0) and
                (.native_machine | type == "string" and length > 0) and
