@@ -1,31 +1,31 @@
 {
   "build": {
-    "generated_at": "2026-08-21T08:24:06Z",
+    "generated_at": "2026-08-21T08:40:56Z",
     "kind": "host-service-image",
     "platform": "linux/amd64",
     "schema_version": 1,
-    "sha256": "27242bff6810000cd1b127231f87a68bc86ab946cddf389a049d8415c5ef204f",
-    "source_ref": "remote-dev-bin-test/4f377337334a-1787300200",
+    "sha256": "d263dabeff80582947e7aee387e1cb6c9ccdbc8487975f740896b996f2f8c84a",
+    "source_ref": "remote-dev-bin-test/4f377337334a-1787301235",
     "source_repo": "M-Adoo/remote-dev",
     "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
     "tarball": "host-service-linux-amd64.tar.zst",
     "target": "release"
   },
   "cloud": "prod",
-  "deployed_image": "us-west1-docker.pkg.dev/remote-dev-host-prod/remote-dev/host-service@sha256:e399993f6e31a8128600b2ba5446529e5ca02f891ba4b1612c9d27afe1e8e51e",
+  "deployed_image": "us-west1-docker.pkg.dev/remote-dev-host-prod/remote-dev/host-service@sha256:32ef8ab9c5d2e4315edae02a1e46bebb5fd993468fd034d2a47cce9d9afb150f",
   "deployment": {
     "platform": "cloud-run",
     "region": "us-west1",
     "service": "remote-dev-host-service"
   },
-  "digest": "sha256:e399993f6e31a8128600b2ba5446529e5ca02f891ba4b1612c9d27afe1e8e51e",
-  "generated_at": "2026-08-21T08:29:19Z",
+  "digest": "sha256:32ef8ab9c5d2e4315edae02a1e46bebb5fd993468fd034d2a47cce9d9afb150f",
+  "generated_at": "2026-08-21T08:46:38Z",
   "image": "us-west1-docker.pkg.dev/remote-dev-host-prod/remote-dev/host-service:prod-4f377337334a",
   "project": "remote-dev-host-prod",
   "schema_version": 1,
-  "source_ref": "remote-dev-bin-test/4f377337334a-1787300200",
+  "source_ref": "remote-dev-bin-test/4f377337334a-1787301235",
   "source_repo": "M-Adoo/remote-dev",
   "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
   "target": "release",
-  "workflow_run_id": "32462441865"
+  "workflow_run_id": "32463766996"
 }
