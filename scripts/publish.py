@@ -2787,6 +2787,33 @@ def assert_workflows(repo_root: Path) -> None:
             )
     if 'MAINTENANCE_AUDIT_SCHEDULE: "17 */6 * * *"' not in release:
         raise Fail("publish-release must pin the production maintenance audit schedule")
+    if (
+        "cp remote-dev/config/host-service-firestore-indexes.json "
+        "out/host-service-firestore-indexes.json"
+    ) not in release:
+        raise Fail("publish-release must export the source Firestore index manifest")
+    firestore_index_step = workflow_step(
+        release,
+        "- name: Apply production Firestore indexes",
+        "publish-release",
+    )
+    for marker in (
+        "downloaded/host-service-firestore-indexes.json",
+        "roles/datastore.indexAdmin",
+        "gcloud firestore indexes composite list",
+        "gcloud firestore indexes composite create",
+        "--database remote-dev-prod",
+        "--query-scope collection",
+        'if [ "$STATE" != "READY" ]',
+    ):
+        if marker not in firestore_index_step:
+            raise Fail(
+                f"publish-release Firestore index apply is missing {marker!r}"
+            )
+    if release.index("- name: Apply production Firestore indexes") > release.index(
+        "- name: Deploy Cloud Run"
+    ):
+        raise Fail("publish-release must make Firestore indexes ready before deployment")
     if "contents: write" in test.split("publish:", 1)[0]:
         raise Fail("test build jobs must not receive contents write")
     for workflow_name, workflow in (("publish-test", test), ("publish-release", release)):
