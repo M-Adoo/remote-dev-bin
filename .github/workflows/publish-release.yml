@@ -279,7 +279,6 @@ jobs:
             2)
               git -C publisher worktree add --detach ../published
               git -C published switch --orphan "$TARGET_BRANCH"
-              git -C published rm -rf .
               ;;
             *)
               echo "failed to inspect release branch (git exit $STATUS)" >&2

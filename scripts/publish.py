@@ -2704,10 +2704,13 @@ def assert_workflows(repo_root: Path) -> None:
         "- name: Prepare append-only release branch",
         'git -C publisher ls-remote --exit-code --heads origin "$TARGET_BRANCH"',
         'git -C published switch --orphan "$TARGET_BRANCH"',
-        "git -C published rm -rf .",
     ):
         if marker not in release:
             raise Fail(f"publish-release cannot safely initialize its artifact branch: missing {marker!r}")
+    if "git -C published rm -rf ." in release:
+        raise Fail(
+            "publish-release must not git rm an already-empty orphan branch"
+        )
     if "TARGET_BRANCH: host-service-test" not in test:
         raise Fail("publish-test must target host-service-test")
     if "REMOTE_DEV_CONFIRM_PROD" not in release or "remote-dev-host-prod" not in release:
