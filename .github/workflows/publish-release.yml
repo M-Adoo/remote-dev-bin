@@ -220,6 +220,7 @@ jobs:
           cp remote-dev/crates/remote-dev-host-service/src/resources/provider-bootstrap/run out/provider-bootstrap-run
           cp remote-dev/crates/remote-dev-host-service/src/resources/host-control/host-inspect.sh out/host-inspect.sh
           cp remote-dev/crates/remote-dev-host-service/src/resources/host-control/leasectl.sh out/leasectl.sh
+          cp remote-dev/config/host-service-firestore-indexes.json out/host-service-firestore-indexes.json
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
@@ -419,6 +420,95 @@ jobs:
             echo "runtime service account must have roles/iam.serviceAccountUser on itself" >&2
             exit 1
           fi
+
+      - name: Apply production Firestore indexes
+        run: |
+          MANIFEST=downloaded/host-service-firestore-indexes.json
+          jq -e \
+            '.fieldOverrides == [] and
+             (.indexes | length == 6) and
+             all(.indexes[];
+               .queryScope == "COLLECTION" and
+               (.fields | length == 2) and
+               all(.fields[]; .order == "ASCENDING"))' \
+            "$MANIFEST"
+          INDEX_ADMIN="$(gcloud projects get-iam-policy "$TARGET_PROJECT" \
+            --flatten='bindings[].members' \
+            --filter="bindings.role=roles/datastore.indexAdmin AND bindings.members=serviceAccount:$DEPLOYER_SERVICE_ACCOUNT" \
+            --format='value(bindings.members)')"
+          if [ "$INDEX_ADMIN" != "serviceAccount:$DEPLOYER_SERVICE_ACCOUNT" ]; then
+            echo "deployer must have roles/datastore.indexAdmin before production deployment" >&2
+            exit 1
+          fi
+
+          list_indexes() {
+            gcloud firestore indexes composite list \
+              --project "$TARGET_PROJECT" \
+              --database remote-dev-prod \
+              --format=json > "$RUNNER_TEMP/firestore-indexes.json"
+          }
+          index_exists() {
+            local required="$1"
+            jq -e --argjson required "$required" \
+              'any(.[];
+                .collectionGroup == $required.collectionGroup and
+                .queryScope == $required.queryScope and
+                ([.fields[] | select(.fieldPath != "__name__") | {fieldPath, order}]
+                  == $required.fields))' \
+              "$RUNNER_TEMP/firestore-indexes.json" > /dev/null
+          }
+
+          list_indexes
+          while IFS= read -r INDEX
+          do
+            if index_exists "$INDEX"; then
+              continue
+            fi
+            COLLECTION="$(jq -r '.collectionGroup' <<< "$INDEX")"
+            FIRST_FIELD="$(jq -r '.fields[0] | "field-path=\(.fieldPath),order=\(.order | ascii_downcase)"' <<< "$INDEX")"
+            SECOND_FIELD="$(jq -r '.fields[1] | "field-path=\(.fieldPath),order=\(.order | ascii_downcase)"' <<< "$INDEX")"
+            gcloud firestore indexes composite create \
+              --project "$TARGET_PROJECT" \
+              --database remote-dev-prod \
+              --collection-group "$COLLECTION" \
+              --query-scope collection \
+              --field-config "$FIRST_FIELD" \
+              --field-config "$SECOND_FIELD" \
+              --quiet
+            list_indexes
+          done < <(jq -c '.indexes[]' "$MANIFEST")
+
+          for _ in $(seq 1 60)
+          do
+            list_indexes
+            ALL_READY=true
+            while IFS= read -r INDEX
+            do
+              if ! index_exists "$INDEX"; then
+                ALL_READY=false
+                break
+              fi
+              STATE="$(jq -r --argjson required "$INDEX" \
+                '.[] |
+                 select(
+                   .collectionGroup == $required.collectionGroup and
+                   .queryScope == $required.queryScope and
+                   ([.fields[] | select(.fieldPath != "__name__") | {fieldPath, order}]
+                     == $required.fields)) |
+                 .state' \
+                "$RUNNER_TEMP/firestore-indexes.json")"
+              if [ "$STATE" != "READY" ]; then
+                ALL_READY=false
+                break
+              fi
+            done < <(jq -c '.indexes[]' "$MANIFEST")
+            if [ "$ALL_READY" = true ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "production Firestore indexes did not become READY within ten minutes" >&2
+          exit 1
 
       - name: Configure Artifact Registry auth
         run: gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
