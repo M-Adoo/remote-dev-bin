@@ -2598,12 +2598,31 @@ def assert_publish_workflow_order(
             raise Fail(f"{name} must verify every provider spot pins the published artifact SHA")
         if 'HOST_SERVICE_PUBLIC_ORIGIN: https://adoo.dev' not in workflow:
             raise Fail(f"{name} must pin the production Google OIDC audience")
-        identity_token = (
-            'gcloud auth print-identity-token --audiences '
-            '"$HOST_SERVICE_PUBLIC_ORIGIN"'
+        ops_auth = workflow_step(
+            workflow,
+            "- name: Mint deployer ops ID token",
+            name,
         )
-        if identity_token not in workflow:
-            raise Fail(f"{name} must authenticate provider spot ops with Google OIDC")
+        for marker in (
+            "id: ops-auth",
+            "uses: google-github-actions/auth@v2",
+            "token_format: id_token",
+            "id_token_audience: ${{ env.HOST_SERVICE_PUBLIC_ORIGIN }}",
+            "id_token_include_email: true",
+            "create_credentials_file: false",
+            "export_environment_variables: false",
+        ):
+            if marker not in ops_auth:
+                raise Fail(f"{name} ops ID Token step is missing {marker!r}")
+        spot_refresh = workflow_step(
+            workflow,
+            "- name: Refresh provider spots",
+            name,
+        )
+        if "${{ steps.ops-auth.outputs.id_token }}" not in spot_refresh:
+            raise Fail(f"{name} provider refresh must use the deployer ops ID Token output")
+        if "gcloud auth print-identity-token" in workflow:
+            raise Fail(f"{name} must not mint audience ID Tokens through gcloud WIF credentials")
         if "/v1/host-admin/spots" in workflow:
             raise Fail(f"{name} must not reuse Host Admin routes for release checks")
     if "steps.deploy.outputs" in workflow:
