@@ -2594,8 +2594,14 @@ def assert_publish_workflow_order(
     if refresh_provider_spots:
         if ".refresh.failed == 0" not in workflow:
             raise Fail(f"{name} must fail when provider spot refresh reports a failure")
-        if "all(. == $sha)" not in workflow:
-            raise Fail(f"{name} must verify every provider spot pins the published artifact SHA")
+        if 'select(.name == "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF")' not in workflow:
+            raise Fail(f"{name} must verify the deployed revision pins the published artifact ref")
+        if '== [$ref]' not in workflow:
+            raise Fail(f"{name} must compare the deployed artifact ref exactly")
+        if '.spots | type == "array" and length > 0' not in workflow:
+            raise Fail(f"{name} must verify provider refresh produced spot offers")
+        if ".launch.artifact_sha" in workflow:
+            raise Fail(f"{name} must not require launch material in raw provider spot snapshots")
         if 'HOST_SERVICE_PUBLIC_ORIGIN: https://adoo.dev' not in workflow:
             raise Fail(f"{name} must pin the production Google OIDC audience")
         ops_auth = workflow_step(
