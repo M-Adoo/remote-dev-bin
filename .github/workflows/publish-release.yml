@@ -26,6 +26,9 @@ env:
   DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
   REGION: us-west1
   SERVICE: remote-dev-host-service
+  MAINTENANCE_QUEUE: remote-dev-host-service-maintenance
+  MAINTENANCE_AUDIT_JOB: remote-dev-host-service-maintenance-audit
+  MAINTENANCE_AUDIT_SCHEDULE: "17 */6 * * *"
   IMAGE_REPOSITORY: remote-dev
   IMAGE_NAME: host-service
   CARGO_TERM_COLOR: always
@@ -341,6 +344,81 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Verify production async infrastructure
+        run: |
+          RUNTIME_SERVICE_ACCOUNT="remote-dev-host-service@$TARGET_PROJECT.iam.gserviceaccount.com"
+          for API in cloudtasks.googleapis.com cloudscheduler.googleapis.com
+          do
+            ENABLED_API="$(gcloud services list \
+              --enabled \
+              --project "$TARGET_PROJECT" \
+              --filter="config.name=$API" \
+              --format='value(config.name)')"
+            if [ "$ENABLED_API" != "$API" ]; then
+              echo "$API must be enabled before production deployment" >&2
+              exit 1
+            fi
+          done
+          gcloud tasks queues describe "$MAINTENANCE_QUEUE" \
+            --location "$REGION" \
+            --project "$TARGET_PROJECT" \
+            --format=json > "$RUNNER_TEMP/maintenance-queue.json"
+          jq -e '.state == "RUNNING"' "$RUNNER_TEMP/maintenance-queue.json"
+          gcloud scheduler jobs describe "$MAINTENANCE_AUDIT_JOB" \
+            --location "$REGION" \
+            --project "$TARGET_PROJECT" \
+            --format=json > "$RUNNER_TEMP/maintenance-audit.json"
+          jq -e \
+            --arg uri "$HOST_SERVICE_PUBLIC_ORIGIN/v1/maintenance/audit" \
+            --arg service_account "$RUNTIME_SERVICE_ACCOUNT" \
+            --arg audience "$HOST_SERVICE_PUBLIC_ORIGIN" \
+            --arg schedule "$MAINTENANCE_AUDIT_SCHEDULE" \
+            '.httpTarget.uri == $uri and
+             .httpTarget.httpMethod == "POST" and
+             .httpTarget.oidcToken.serviceAccountEmail == $service_account and
+             .httpTarget.oidcToken.audience == $audience and
+             .schedule == $schedule and
+             .state == "ENABLED"' \
+            "$RUNNER_TEMP/maintenance-audit.json"
+
+          ENQUEUER="$(gcloud projects get-iam-policy "$TARGET_PROJECT" \
+            --flatten='bindings[].members' \
+            --filter="bindings.role=roles/cloudtasks.enqueuer AND bindings.members=serviceAccount:$RUNTIME_SERVICE_ACCOUNT" \
+            --format='value(bindings.members)')"
+          if [ "$ENQUEUER" != "serviceAccount:$RUNTIME_SERVICE_ACCOUNT" ]; then
+            echo "runtime service account must have roles/cloudtasks.enqueuer" >&2
+            exit 1
+          fi
+
+          PROJECT_NUMBER="$(gcloud projects describe "$TARGET_PROJECT" \
+            --format='value(projectNumber)')"
+          TASKS_SERVICE_AGENT="service-$PROJECT_NUMBER@gcp-sa-cloudtasks.iam.gserviceaccount.com"
+          SCHEDULER_SERVICE_AGENT="service-$PROJECT_NUMBER@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
+          for BINDING in \
+            "$TASKS_SERVICE_AGENT|roles/cloudtasks.serviceAgent" \
+            "$SCHEDULER_SERVICE_AGENT|roles/cloudscheduler.serviceAgent"
+          do
+            MEMBER="${BINDING%%|*}"
+            ROLE="${BINDING#*|}"
+            SERVICE_AGENT_ROLE="$(gcloud projects get-iam-policy "$TARGET_PROJECT" \
+              --flatten='bindings[].members' \
+              --filter="bindings.role=$ROLE AND bindings.members=serviceAccount:$MEMBER" \
+              --format='value(bindings.members)')"
+            if [ "$SERVICE_AGENT_ROLE" != "serviceAccount:$MEMBER" ]; then
+              echo "$MEMBER must have $ROLE" >&2
+              exit 1
+            fi
+          done
+          SELF_ACT_AS="$(gcloud iam service-accounts get-iam-policy "$RUNTIME_SERVICE_ACCOUNT" \
+            --project "$TARGET_PROJECT" \
+            --flatten='bindings[].members' \
+            --filter="bindings.role=roles/iam.serviceAccountUser AND bindings.members=serviceAccount:$RUNTIME_SERVICE_ACCOUNT" \
+            --format='value(bindings.members)')"
+          if [ "$SELF_ACT_AS" != "serviceAccount:$RUNTIME_SERVICE_ACCOUNT" ]; then
+            echo "runtime service account must have roles/iam.serviceAccountUser on itself" >&2
+            exit 1
+          fi
 
       - name: Configure Artifact Registry auth
         run: gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
