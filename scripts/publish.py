@@ -2598,8 +2598,12 @@ def assert_publish_workflow_order(
             raise Fail(f"{name} must verify the deployed revision pins the published artifact ref")
         if '== [$ref]' not in workflow:
             raise Fail(f"{name} must compare the deployed artifact ref exactly")
-        if '.spots | type == "array" and length > 0' not in workflow:
-            raise Fail(f"{name} must verify provider refresh produced spot offers")
+        if '.spots | type == "array"' not in workflow:
+            raise Fail(f"{name} must verify the provider spot collection shape")
+        if "all(.spots[];" not in workflow:
+            raise Fail(f"{name} must validate every provider spot returned")
+        if '.spots | type == "array" and length > 0' in workflow:
+            raise Fail(f"{name} must allow an empty provider inventory during initial bootstrap")
         if ".launch.artifact_sha" in workflow:
             raise Fail(f"{name} must not require launch material in raw provider spot snapshots")
         if 'HOST_SERVICE_PUBLIC_ORIGIN: https://adoo.dev' not in workflow:
