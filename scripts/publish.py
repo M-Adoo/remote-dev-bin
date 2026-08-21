@@ -2752,6 +2752,8 @@ def assert_workflows(repo_root: Path) -> None:
     for marker in (
         "remote-dev-prod-accounts-owner-sub",
         "remote-dev-prod-accounts-login-token-key",
+        "remote-dev-prod-hostctrl-management-key",
+        "remote-dev-prod-cloud-provider-aws-credentials",
         "gcloud secrets versions list",
         "roles/secretmanager.secretAccessor",
         "remote-dev-host-service@$TARGET_PROJECT.iam.gserviceaccount.com",
