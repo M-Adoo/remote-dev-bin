@@ -2762,6 +2762,31 @@ def assert_workflows(repo_root: Path) -> None:
             raise Fail(f"publish-release runtime secret preflight is missing {marker!r}")
     if "versions access" in secret_check or "latest" in secret_check:
         raise Fail("publish-release must validate Secret metadata without reading payloads")
+    async_infrastructure_check = workflow_step(
+        release,
+        "- name: Verify production async infrastructure",
+        "publish-release",
+    )
+    for marker in (
+        "cloudtasks.googleapis.com",
+        "cloudscheduler.googleapis.com",
+        'gcloud tasks queues describe "$MAINTENANCE_QUEUE"',
+        'gcloud scheduler jobs describe "$MAINTENANCE_AUDIT_JOB"',
+        "roles/cloudtasks.enqueuer",
+        "service-$PROJECT_NUMBER@gcp-sa-cloudtasks.iam.gserviceaccount.com",
+        "roles/cloudtasks.serviceAgent",
+        "service-$PROJECT_NUMBER@gcp-sa-cloudscheduler.iam.gserviceaccount.com",
+        "roles/cloudscheduler.serviceAgent",
+        "roles/iam.serviceAccountUser",
+        "$HOST_SERVICE_PUBLIC_ORIGIN/v1/maintenance/audit",
+    ):
+        if marker not in async_infrastructure_check:
+            raise Fail(
+                "publish-release async infrastructure preflight is missing "
+                f"{marker!r}"
+            )
+    if 'MAINTENANCE_AUDIT_SCHEDULE: "17 */6 * * *"' not in release:
+        raise Fail("publish-release must pin the production maintenance audit schedule")
     if "contents: write" in test.split("publish:", 1)[0]:
         raise Fail("test build jobs must not receive contents write")
     for workflow_name, workflow in (("publish-test", test), ("publish-release", release)):
