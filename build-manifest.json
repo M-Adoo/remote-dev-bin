@@ -10,12 +10,12 @@
         "bin/remote-dev"
       ],
       "cargo_target": "aarch64-apple-darwin",
-      "generated_at": "2026-08-21T08:36:33Z",
+      "generated_at": "2026-08-21T09:00:37Z",
       "kind": "cli-bundle",
       "package": "remote-dev",
       "schema_version": 2,
-      "sha256": "f874e3114a4c30a8554df8152af20b6ab86ff1aaeb92f682e20f5259f426516b",
-      "source_ref": "remote-dev-bin-test/4f377337334a-1787301235",
+      "sha256": "57c0258e5f2bdd8d6f86c204dd18a68e1e654c61a53cef73554b219fdb95a5ca",
+      "source_ref": "remote-dev-bin-test/4f377337334a-1787302684",
       "source_repo": "M-Adoo/remote-dev",
       "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
       "system": "aarch64-darwin",
@@ -32,12 +32,12 @@
         "bin/remote-dev"
       ],
       "cargo_target": "aarch64-unknown-linux-musl",
-      "generated_at": "2026-08-21T08:36:53Z",
+      "generated_at": "2026-08-21T09:01:24Z",
       "kind": "cli-bundle",
       "package": "remote-dev",
       "schema_version": 2,
-      "sha256": "815642b16bdc142009f17ae879dda4d93eb171967e1f2a6c5b5bcf82fef0bb3a",
-      "source_ref": "remote-dev-bin-test/4f377337334a-1787301235",
+      "sha256": "be4baf402c852e5054aa207f7c340956ff3d2a01cccfce66b8b7f4813f675c92",
+      "source_ref": "remote-dev-bin-test/4f377337334a-1787302684",
       "source_repo": "M-Adoo/remote-dev",
       "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
       "system": "aarch64-linux",
@@ -51,8 +51,8 @@
       "firstboot_schema_version": 5,
       "kind": "host-bundle",
       "schema_version": 1,
-      "sha256": "b74dff0d813684d7a0d698d92895e11e8e3dfea2d8e76a8f36fb6a21ef9a6b1c",
-      "source_ref": "remote-dev-bin-test/4f377337334a-1787301235",
+      "sha256": "0373a071e01719845137410dd99a194283eaad3e2ed872caba11f805c4d6887e",
+      "source_ref": "remote-dev-bin-test/4f377337334a-1787302684",
       "source_repo": "M-Adoo/remote-dev",
       "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
       "system": "aarch64-linux",
@@ -66,8 +66,8 @@
       "firstboot_schema_version": 5,
       "kind": "host-bundle",
       "schema_version": 1,
-      "sha256": "ea1e04f46202a5e7f9544fcdb5b497867410c9eed4f7d25867ec19b1da67ae48",
-      "source_ref": "remote-dev-bin-test/4f377337334a-1787301235",
+      "sha256": "f1bb76d8f13eedee1854199432042b715fef6b240694651aa8d3b4c9bbb9aee9",
+      "source_ref": "remote-dev-bin-test/4f377337334a-1787302684",
       "source_repo": "M-Adoo/remote-dev",
       "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
       "system": "x86_64-linux",
@@ -84,12 +84,12 @@
         "bin/remote-dev"
       ],
       "cargo_target": "x86_64-apple-darwin",
-      "generated_at": "2026-08-21T08:36:29Z",
+      "generated_at": "2026-08-21T09:00:59Z",
       "kind": "cli-bundle",
       "package": "remote-dev",
       "schema_version": 2,
-      "sha256": "2c25cebe0610d62fb6b815445d7f7ceb60dba1fb6a9963689a0581a32dfa1afa",
-      "source_ref": "remote-dev-bin-test/4f377337334a-1787301235",
+      "sha256": "16824895eaa35705cf06a45d4b4c5edaccf4ff38ffcf666c35dba1ee2008425b",
+      "source_ref": "remote-dev-bin-test/4f377337334a-1787302684",
       "source_repo": "M-Adoo/remote-dev",
       "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
       "system": "x86_64-darwin",
@@ -106,12 +106,12 @@
         "bin/remote-dev"
       ],
       "cargo_target": "x86_64-unknown-linux-musl",
-      "generated_at": "2026-08-21T08:37:56Z",
+      "generated_at": "2026-08-21T09:01:47Z",
       "kind": "cli-bundle",
       "package": "remote-dev",
       "schema_version": 2,
-      "sha256": "d93ceb5b7a10ec0852a853d5c4d96650cc503da4e63e5876e20dbc0d4e9735b0",
-      "source_ref": "remote-dev-bin-test/4f377337334a-1787301235",
+      "sha256": "6623a70af7ffcf64157f202501a172edf02ca595fc4a0db361b7fa1a34a0948e",
+      "source_ref": "remote-dev-bin-test/4f377337334a-1787302684",
       "source_repo": "M-Adoo/remote-dev",
       "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
       "system": "x86_64-linux",
@@ -130,13 +130,13 @@
         "nixos-manual-html": false
       },
       "path_names": [
-        "abs06kxqdmmigxfjwk9pbj9vlkcgflyc-remote-dev-agent-runtime"
+        "c33zq30hjqdnbyhjxh8v2ghqxrc8bkmd-remote-dev-agent-runtime"
       ],
       "system": "x86_64-linux",
       "top_nar_size_paths": [
         {
           "nar_size": 28211808,
-          "path": "/nix/store/abs06kxqdmmigxfjwk9pbj9vlkcgflyc-remote-dev-agent-runtime"
+          "path": "/nix/store/c33zq30hjqdnbyhjxh8v2ghqxrc8bkmd-remote-dev-agent-runtime"
         }
       ],
       "unsigned_paths": 1
@@ -151,19 +151,19 @@
         "nixos-manual-html": false
       },
       "path_names": [
-        "k50wm5rzi51kdinsbi2vz2z3iwc12cjl-remote-dev-agent-runtime"
+        "vkag4l2gvl5lgc09m3zbyxn6z3nfzqkn-remote-dev-agent-runtime"
       ],
       "system": "aarch64-linux",
       "top_nar_size_paths": [
         {
           "nar_size": 27164480,
-          "path": "/nix/store/k50wm5rzi51kdinsbi2vz2z3iwc12cjl-remote-dev-agent-runtime"
+          "path": "/nix/store/vkag4l2gvl5lgc09m3zbyxn6z3nfzqkn-remote-dev-agent-runtime"
         }
       ],
       "unsigned_paths": 1
     }
   ],
-  "generated_at": "2026-08-21T08:46:48Z",
+  "generated_at": "2026-08-21T09:11:37Z",
   "host_arches": [
     "x86_64",
     "aarch64"
@@ -181,7 +181,7 @@
   },
   "schema_version": 1,
   "source": {
-    "ref": "remote-dev-bin-test/4f377337334a-1787301235",
+    "ref": "remote-dev-bin-test/4f377337334a-1787302684",
     "repo": "M-Adoo/remote-dev",
     "sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b"
   },
