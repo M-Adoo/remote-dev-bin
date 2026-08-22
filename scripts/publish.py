@@ -2744,6 +2744,23 @@ def assert_workflows(repo_root: Path) -> None:
         raise Fail("publish-test must target host-service-test")
     if "REMOTE_DEV_CONFIRM_PROD" not in release or "remote-dev-host-prod" not in release:
         raise Fail("publish-release must carry the prod confirmation guard")
+    deployer_read_check = workflow_step(
+        release,
+        "- name: Verify production deployer read boundary",
+        "publish-release",
+    )
+    for marker in (
+        "roles/browser",
+        "roles/cloudtasks.viewer",
+        "roles/cloudscheduler.viewer",
+        "roles/iam.serviceAccountViewer",
+        "serviceAccount:$DEPLOYER_SERVICE_ACCOUNT",
+    ):
+        if marker not in deployer_read_check:
+            raise Fail(
+                "publish-release deployer read preflight is missing "
+                f"{marker!r}"
+            )
     secret_check = workflow_step(
         release,
         "- name: Verify production runtime secrets",
