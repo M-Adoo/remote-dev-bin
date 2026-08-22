@@ -463,7 +463,21 @@ jobs:
             gcloud firestore indexes composite list \
               --project "$TARGET_PROJECT" \
               --database remote-dev-prod \
-              --format=json > "$RUNNER_TEMP/firestore-indexes.json"
+              --format=json > "$RUNNER_TEMP/firestore-indexes-raw.json"
+            jq -e '
+              map(
+                (.name | split("/")) as $segments |
+                if (($segments | length) == 8 and
+                    $segments[0] == "projects" and
+                    $segments[2] == "databases" and
+                    $segments[4] == "collectionGroups" and
+                    $segments[6] == "indexes")
+                then . + {collectionGroup: $segments[5]}
+                else error("unexpected Firestore index resource name")
+                end
+              )' \
+              "$RUNNER_TEMP/firestore-indexes-raw.json" \
+              > "$RUNNER_TEMP/firestore-indexes.json"
           }
           index_exists() {
             local required="$1"
