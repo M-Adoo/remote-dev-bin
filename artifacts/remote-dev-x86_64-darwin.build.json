@@ -8,14 +8,14 @@
     "bin/remote-dev"
   ],
   "cargo_target": "x86_64-apple-darwin",
-  "generated_at": "2026-08-22T07:54:58Z",
+  "generated_at": "2026-08-22T09:10:59Z",
   "kind": "cli-bundle",
   "package": "remote-dev",
   "schema_version": 2,
-  "sha256": "8c83560c5c1ee023b9c87a48bb8b5e0d21050d265729ae8600c7df2116fa30fe",
-  "source_ref": "remote-dev-bin-test/b617f475109d-1787385135",
+  "sha256": "2481f487551e1708a65cfe00ca48ea65912db724aad63aa6642e4cb7ba9680c8",
+  "source_ref": "remote-dev-bin-test/db4ca718f84a-1787389646",
   "source_repo": "M-Adoo/remote-dev",
-  "source_sha": "b617f475109d9cfe6c643cc32269343f7a9a3b98",
+  "source_sha": "db4ca718f84a1a3ee83762be87f6ddb640de4ada",
   "system": "x86_64-darwin",
   "tarball": "artifacts/remote-dev-x86_64-darwin.tar.gz",
   "target": "release"
