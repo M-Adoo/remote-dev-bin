@@ -1,0 +1,308 @@
+name: Close Production Access Boundary
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: close-production-access-boundary
+  cancel-in-progress: false
+
+env:
+  TARGET_PROJECT: remote-dev-host-prod
+  REMOTE_DEV_CONFIRM_PROD: ${{ vars.REMOTE_DEV_CONFIRM_PROD }}
+  EXPECTED_DEPLOYER_SERVICE_ACCOUNT: remote-dev-github-deployer@remote-dev-host-prod.iam.gserviceaccount.com
+  DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+  RUNTIME_SERVICE_ACCOUNT: remote-dev-host-service@remote-dev-host-prod.iam.gserviceaccount.com
+  BREAK_GLASS_MEMBER: user:Adoo@outlook.com
+  HOST_SERVICE_PUBLIC_ORIGIN: https://adoo.dev
+  REGION: us-west1
+  SERVICE: remote-dev-host-service
+
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Confirm protected production target
+        run: |
+          if [ "$REMOTE_DEV_CONFIRM_PROD" != "$TARGET_PROJECT" ]; then
+            echo "REMOTE_DEV_CONFIRM_PROD must match $TARGET_PROJECT" >&2
+            exit 1
+          fi
+          if [ "$DEPLOYER_SERVICE_ACCOUNT" != "$EXPECTED_DEPLOYER_SERVICE_ACCOUNT" ]; then
+            echo "GCP_DEPLOYER_SERVICE_ACCOUNT must exactly match $EXPECTED_DEPLOYER_SERVICE_ACCOUNT" >&2
+            exit 1
+          fi
+          if [ "$BREAK_GLASS_MEMBER" != "user:Adoo@outlook.com" ]; then
+            echo "break-glass member must remain exact" >&2
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - name: Install gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Verify deployed production boundary
+        run: |
+          gcloud projects describe "$TARGET_PROJECT" \
+            --format=json > "$RUNNER_TEMP/project.json"
+          jq -e \
+            --arg project "$TARGET_PROJECT" \
+            '.projectId == $project and (.parent == null)' \
+            "$RUNNER_TEMP/project.json"
+
+          gcloud run services describe "$SERVICE" \
+            --project "$TARGET_PROJECT" \
+            --region "$REGION" \
+            --format=json > "$RUNNER_TEMP/host-service.json"
+          jq -e \
+            '([.spec.template.spec.containers[]?.env[]? |
+                select(.name == "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF") |
+                .value] | unique) as $refs |
+             ($refs | length) == 1 and
+             ($refs[0] | test("^github:M-Adoo/remote-dev-bin/[0-9a-f]{40}$")) and
+             (.status.latestReadyRevisionName | type == "string" and length > 0)' \
+            "$RUNNER_TEMP/host-service.json"
+
+          curl -fsS "$HOST_SERVICE_PUBLIC_ORIGIN/ready" \
+            -o "$RUNNER_TEMP/ready.json"
+          jq -e \
+            '.deployment == "prod" and .runtime_api_version == 7 and
+             .status == "ok" and .store_read == "ok"' \
+            "$RUNNER_TEMP/ready.json"
+
+      - name: Inspect break-glass closure state
+        id: preflight
+        run: |
+          project_roles() {
+            gcloud projects get-iam-policy "$TARGET_PROJECT" \
+              --flatten='bindings[].members' \
+              --filter="bindings.members=$1" \
+              --format='value(bindings.role)' | sort -u
+          }
+          service_account_roles() {
+            gcloud iam service-accounts get-iam-policy "$1" \
+              --project "$TARGET_PROJECT" \
+              --flatten='bindings[].members' \
+              --filter="bindings.members=$BREAK_GLASS_MEMBER" \
+              --format='value(bindings.role)' | sort -u
+          }
+          has_set_iam_policy() {
+            ACCESS_TOKEN="$(gcloud auth print-access-token)"
+            RESPONSE="$(curl -fsS -X POST \
+              -H "authorization: Bearer $ACCESS_TOKEN" \
+              -H 'content-type: application/json' \
+              "https://cloudresourcemanager.googleapis.com/v1/projects/$TARGET_PROJECT:testIamPermissions" \
+              -d '{"permissions":["resourcemanager.projects.setIamPolicy"]}')"
+            jq -e \
+              '(.permissions // []) |
+               index("resourcemanager.projects.setIamPolicy") != null' \
+              <<< "$RESPONSE" > /dev/null
+          }
+
+          BREAK_GLASS_ROLES="$(project_roles "$BREAK_GLASS_MEMBER")"
+          case "$BREAK_GLASS_ROLES" in
+            "") REMOVE_OWNER=false ;;
+            roles/owner) REMOVE_OWNER=true ;;
+            *)
+              echo "$BREAK_GLASS_MEMBER has unexpected project roles:" >&2
+              echo "$BREAK_GLASS_ROLES" >&2
+              exit 1
+              ;;
+          esac
+
+          DEPLOYER_MEMBER="serviceAccount:$DEPLOYER_SERVICE_ACCOUNT"
+          IAM_ADMIN_BINDING="$(project_roles "$DEPLOYER_MEMBER" |
+            grep -Fx 'roles/resourcemanager.projectIamAdmin' || true)"
+          if [ "$REMOVE_OWNER" = true ] &&
+             [ "$IAM_ADMIN_BINDING" != "roles/resourcemanager.projectIamAdmin" ]; then
+            echo "deployer requires temporary roles/resourcemanager.projectIamAdmin" >&2
+            exit 1
+          fi
+          if [ -n "$IAM_ADMIN_BINDING" ]; then
+            REMOVE_IAM_ADMIN=true
+            if ! has_set_iam_policy; then
+              echo "deployer IAM Admin binding is not effective" >&2
+              exit 1
+            fi
+          else
+            REMOVE_IAM_ADMIN=false
+            if has_set_iam_policy; then
+              echo "deployer has setIamPolicy through an unexpected role" >&2
+              exit 1
+            fi
+          fi
+
+          for SERVICE_ACCOUNT in \
+            "$DEPLOYER_SERVICE_ACCOUNT" \
+            "$RUNTIME_SERVICE_ACCOUNT"
+          do
+            DIRECT_ROLES="$(service_account_roles "$SERVICE_ACCOUNT")"
+            if [ -n "$DIRECT_ROLES" ]; then
+              echo "$BREAK_GLASS_MEMBER has direct roles on $SERVICE_ACCOUNT:" >&2
+              echo "$DIRECT_ROLES" >&2
+              exit 1
+            fi
+          done
+
+          echo "remove_owner=$REMOVE_OWNER" >> "$GITHUB_OUTPUT"
+          echo "remove_iam_admin=$REMOVE_IAM_ADMIN" >> "$GITHUB_OUTPUT"
+
+      - name: Close break-glass production access
+        if: ${{ steps.preflight.outputs.remove_owner == 'true' || steps.preflight.outputs.remove_iam_admin == 'true' }}
+        run: |
+          project_roles() {
+            gcloud projects get-iam-policy "$TARGET_PROJECT" \
+              --flatten='bindings[].members' \
+              --filter="bindings.members=$1" \
+              --format='value(bindings.role)' | sort -u
+          }
+
+          if [ "${{ steps.preflight.outputs.remove_owner }}" = true ]; then
+            gcloud projects remove-iam-policy-binding "$TARGET_PROJECT" \
+              --member "$BREAK_GLASS_MEMBER" \
+              --role roles/owner \
+              --all \
+              --quiet
+          fi
+
+          BREAK_GLASS_ROLES="$(project_roles "$BREAK_GLASS_MEMBER")"
+          if [ -n "$BREAK_GLASS_ROLES" ]; then
+            echo "$BREAK_GLASS_MEMBER still has project roles:" >&2
+            echo "$BREAK_GLASS_ROLES" >&2
+            exit 1
+          fi
+
+          if [ "${{ steps.preflight.outputs.remove_iam_admin }}" = true ]; then
+            gcloud projects remove-iam-policy-binding "$TARGET_PROJECT" \
+              --member "serviceAccount:$DEPLOYER_SERVICE_ACCOUNT" \
+              --role roles/resourcemanager.projectIamAdmin \
+              --all \
+              --quiet
+          fi
+
+      - name: Verify completed production access boundary
+        run: |
+          project_roles() {
+            gcloud projects get-iam-policy "$TARGET_PROJECT" \
+              --flatten='bindings[].members' \
+              --filter="bindings.members=$1" \
+              --format='value(bindings.role)' | sort -u
+          }
+          service_account_roles() {
+            gcloud iam service-accounts get-iam-policy "$1" \
+              --project "$TARGET_PROJECT" \
+              --flatten='bindings[].members' \
+              --filter="bindings.members=$BREAK_GLASS_MEMBER" \
+              --format='value(bindings.role)' | sort -u
+          }
+          has_set_iam_policy() {
+            ACCESS_TOKEN="$(gcloud auth print-access-token)"
+            RESPONSE="$(curl -fsS -X POST \
+              -H "authorization: Bearer $ACCESS_TOKEN" \
+              -H 'content-type: application/json' \
+              "https://cloudresourcemanager.googleapis.com/v1/projects/$TARGET_PROJECT:testIamPermissions" \
+              -d '{"permissions":["resourcemanager.projects.setIamPolicy"]}')"
+            jq -e \
+              '(.permissions // []) |
+               index("resourcemanager.projects.setIamPolicy") != null' \
+              <<< "$RESPONSE" > /dev/null
+          }
+
+          BREAK_GLASS_ROLES="$(project_roles "$BREAK_GLASS_MEMBER")"
+          if [ -n "$BREAK_GLASS_ROLES" ]; then
+            echo "$BREAK_GLASS_MEMBER still has project roles:" >&2
+            echo "$BREAK_GLASS_ROLES" >&2
+            exit 1
+          fi
+          for SERVICE_ACCOUNT in \
+            "$DEPLOYER_SERVICE_ACCOUNT" \
+            "$RUNTIME_SERVICE_ACCOUNT"
+          do
+            DIRECT_ROLES="$(service_account_roles "$SERVICE_ACCOUNT")"
+            if [ -n "$DIRECT_ROLES" ]; then
+              echo "$BREAK_GLASS_MEMBER still has direct roles on $SERVICE_ACCOUNT:" >&2
+              echo "$DIRECT_ROLES" >&2
+              exit 1
+            fi
+          done
+
+          DEPLOYER_MEMBER="serviceAccount:$DEPLOYER_SERVICE_ACCOUNT"
+          IAM_ADMIN_BINDING="$(project_roles "$DEPLOYER_MEMBER" |
+            grep -Fx 'roles/resourcemanager.projectIamAdmin' || true)"
+          if [ -n "$IAM_ADMIN_BINDING" ]; then
+            echo "deployer retained roles/resourcemanager.projectIamAdmin" >&2
+            exit 1
+          fi
+
+          IAM_PERMISSION_CLEARED=false
+          for _ in $(seq 1 30); do
+            if ! has_set_iam_policy; then
+              IAM_PERMISSION_CLEARED=true
+              break
+            fi
+            sleep 10
+          done
+          if [ "$IAM_PERMISSION_CLEARED" != true ]; then
+            echo "deployer retained resourcemanager.projects.setIamPolicy" >&2
+            exit 1
+          fi
+
+          gcloud run services describe "$SERVICE" \
+            --project "$TARGET_PROJECT" \
+            --region "$REGION" \
+            --format=json > "$RUNNER_TEMP/host-service-final.json"
+          REVISION="$(jq -r '.status.latestReadyRevisionName' "$RUNNER_TEMP/host-service-final.json")"
+          ARTIFACT_REF="$(jq -r \
+            '[.spec.template.spec.containers[]?.env[]? |
+              select(.name == "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF") |
+              .value] | unique |
+             if length == 1 then .[0] else error("artifact ref must be unique") end' \
+            "$RUNNER_TEMP/host-service-final.json")"
+          DEPLOYER_ROLES="$(project_roles "$DEPLOYER_MEMBER")"
+          jq -n \
+            --arg project "$TARGET_PROJECT" \
+            --arg break_glass_member "$BREAK_GLASS_MEMBER" \
+            --arg deployer_service_account "$DEPLOYER_SERVICE_ACCOUNT" \
+            --arg runtime_service_account "$RUNTIME_SERVICE_ACCOUNT" \
+            --arg revision "$REVISION" \
+            --arg artifact_ref "$ARTIFACT_REF" \
+            --arg deployer_roles "$DEPLOYER_ROLES" \
+            --arg workflow_sha "$GITHUB_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            '{
+              schema_version: 1,
+              project: $project,
+              break_glass_member: $break_glass_member,
+              break_glass_project_roles: [],
+              break_glass_deployer_service_account_roles: [],
+              break_glass_runtime_service_account_roles: [],
+              deployer_service_account: $deployer_service_account,
+              runtime_service_account: $runtime_service_account,
+              deployer_project_iam_admin: false,
+              deployer_set_iam_policy: false,
+              deployer_remaining_project_roles: ($deployer_roles | split("\n") | map(select(length > 0))),
+              cloud_run_revision: $revision,
+              artifact_ref: $artifact_ref,
+              workflow_sha: $workflow_sha,
+              workflow_run_id: $run_id
+            }' > "$RUNNER_TEMP/production-access-boundary.json"
+
+      - name: Upload production access boundary evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-access-boundary-${{ github.run_id }}
+          path: ${{ runner.temp }}/production-access-boundary.json
+          if-no-files-found: error
+          retention-days: 90

@@ -2709,6 +2709,76 @@ def assert_successful_test_run_delete_workflow(workflow: str) -> None:
         raise Fail("successful test run deleter must have actions: write permission")
 
 
+def assert_production_access_boundary_workflow(workflow: str) -> None:
+    for marker in (
+        "workflow_dispatch:",
+        "environment: prod",
+        "concurrency:\n  group: close-production-access-boundary\n  cancel-in-progress: false",
+        "TARGET_PROJECT: remote-dev-host-prod",
+        "REMOTE_DEV_CONFIRM_PROD: ${{ vars.REMOTE_DEV_CONFIRM_PROD }}",
+        "EXPECTED_DEPLOYER_SERVICE_ACCOUNT: remote-dev-github-deployer@remote-dev-host-prod.iam.gserviceaccount.com",
+        "RUNTIME_SERVICE_ACCOUNT: remote-dev-host-service@remote-dev-host-prod.iam.gserviceaccount.com",
+        "BREAK_GLASS_MEMBER: user:Adoo@outlook.com",
+        "HOST_SERVICE_PUBLIC_ORIGIN: https://adoo.dev",
+        "id-token: write",
+        "uses: google-github-actions/auth@v2",
+        "workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}",
+        "service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}",
+        "- name: Verify deployed production boundary",
+        '(.parent == null)',
+        'test("^github:M-Adoo/remote-dev-bin/[0-9a-f]{40}$")',
+        '.runtime_api_version == 7',
+        '.store_read == "ok"',
+        "- name: Inspect break-glass closure state",
+        "roles/resourcemanager.projectIamAdmin",
+        "resourcemanager.projects.setIamPolicy",
+        ":testIamPermissions",
+        "- name: Close break-glass production access",
+        "- name: Verify completed production access boundary",
+        "deployer_set_iam_policy: false",
+        "- name: Upload production access boundary evidence",
+        "uses: actions/upload-artifact@v4",
+        "retention-days: 90",
+    ):
+        if marker not in workflow:
+            raise Fail(f"production access boundary workflow is missing {marker!r}")
+    if "pull_request" in workflow or "pull_request_target" in workflow:
+        raise Fail("production access boundary workflow must be manual only")
+    if "add-iam-policy-binding" in workflow:
+        raise Fail("production access boundary workflow must never grant IAM")
+    if "gh run delete" in workflow:
+        raise Fail("production access boundary workflow must retain its run evidence")
+    owner_remove = required_index(
+        workflow,
+        '--member "$BREAK_GLASS_MEMBER"',
+        "production access boundary workflow",
+    )
+    deployer_remove = required_index(
+        workflow,
+        '--member "serviceAccount:$DEPLOYER_SERVICE_ACCOUNT"',
+        "production access boundary workflow",
+    )
+    final_verify = required_index(
+        workflow,
+        "- name: Verify completed production access boundary",
+        "production access boundary workflow",
+    )
+    if not owner_remove < deployer_remove < final_verify:
+        raise Fail(
+            "production access boundary workflow must remove the break-glass Owner before "
+            "removing deployer IAM Admin and final verification"
+        )
+    close_step = workflow_step(
+        workflow,
+        "- name: Close break-glass production access",
+        "production access boundary workflow",
+    )
+    if close_step.count("gcloud projects remove-iam-policy-binding") != 2:
+        raise Fail("production access boundary workflow must contain exactly two IAM removals")
+    if close_step.count("--all") != 2:
+        raise Fail("production access boundary IAM removals must include conditional bindings")
+
+
 def assert_workflows(repo_root: Path) -> None:
     test = (repo_root / ".github/workflows/publish-test.yml").read_text()
     release = (repo_root / ".github/workflows/publish-release.yml").read_text()
@@ -2716,7 +2786,12 @@ def assert_workflows(repo_root: Path) -> None:
     delete_successful_test_run = (
         repo_root / ".github/workflows/delete-successful-test-run.yml"
     ).read_text()
-    combined = "\n".join([test, release, cleanup, delete_successful_test_run])
+    production_access_boundary = (
+        repo_root / ".github/workflows/close-production-access-boundary.yml"
+    ).read_text()
+    combined = "\n".join(
+        [test, release, cleanup, delete_successful_test_run, production_access_boundary]
+    )
     if "pull_request" in combined or "pull_request_target" in combined:
         raise Fail("publish workflows must not run on pull_request events")
     for forbidden in ("cloud:", "project:"):
@@ -2858,6 +2933,7 @@ def assert_workflows(repo_root: Path) -> None:
         raise Fail("publish-test must not try to delete its active run")
     assert_test_cleanup_workflow(cleanup)
     assert_successful_test_run_delete_workflow(delete_successful_test_run)
+    assert_production_access_boundary_workflow(production_access_boundary)
     assert_publish_workflow_order(
         "publish-test",
         test,

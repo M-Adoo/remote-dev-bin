@@ -74,3 +74,12 @@ The production publisher pins the exact deployer service account, mints Google
 OIDC for `https://adoo.dev`, and performs release checks only through
 `/v1/ops/provider-spots` and `/v1/ops/provider-spots/refresh`; it does not reuse
 Web Host Admin credentials or routes.
+
+`Close Production Access Boundary` is a separate manual workflow protected by
+the same `prod` environment. It verifies the deployed V7 revision before making
+any IAM change, accepts only the exact temporary break-glass Owner and deployer
+identities, removes the Owner binding, then removes the deployer's temporary
+Project IAM Admin binding. A final effective-permission check proves that the
+deployer can no longer call `setIamPolicy`, and the workflow retains a redacted
+evidence artifact. Reruns are read-only after the boundary is closed; the
+workflow never grants IAM or accepts a project/member input.
