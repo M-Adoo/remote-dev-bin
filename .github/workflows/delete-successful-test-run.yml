@@ -1,0 +1,49 @@
+name: Delete Successful Test Run Record
+
+on:
+  workflow_run:
+    workflows:
+      - Publish Test Artifacts
+      - Cleanup HostService Test Artifacts
+    types:
+      - completed
+
+permissions:
+  actions: write
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete prior run deletion records
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/delete-successful-test-run.yml/runs" \
+            -f status=completed \
+            -F per_page=100 \
+            --paginate \
+            --jq '.workflow_runs[].id' |
+          while IFS= read -r run_id; do
+            [ -n "$run_id" ] || continue
+            if [ "$run_id" = "$GITHUB_RUN_ID" ]; then
+              continue
+            fi
+            echo "Deleting prior run deletion record $run_id"
+            gh run delete "$run_id" --repo "$GITHUB_REPOSITORY"
+          done
+
+      - name: Delete successful test run record
+        if: ${{ github.event.workflow_run.conclusion == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_NAME: ${{ github.event.workflow_run.name }}
+        run: |
+          if [ -z "$SOURCE_RUN_ID" ]; then
+            echo "workflow_run.id is required" >&2
+            exit 1
+          fi
+          echo "Deleting successful $SOURCE_RUN_NAME run $SOURCE_RUN_ID"
+          gh run delete "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY"

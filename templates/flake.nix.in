@@ -1,0 +1,214 @@
+{
+  description = "remote-dev publisher staging flake";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+    disko.url = "github:nix-community/disko";
+    disko.inputs.nixpkgs.follows = "nixpkgs";
+  };
+
+  outputs = { self, nixpkgs, flake-utils, disko }:
+    let
+      version = __VERSION__;
+      mkLocalBinaryPackage = pkgs: pname: binaryName: src:
+        pkgs.stdenvNoCC.mkDerivation {
+          inherit pname version src;
+          sourceRoot = ".";
+          dontUnpack = true;
+          nativeBuildInputs = [ pkgs.gnutar pkgs.gzip ];
+          installPhase = ''
+            mkdir -p $out/bin
+            tar xzf $src -C $out/bin
+            chmod +x $out/bin/${binaryName}
+          '';
+        };
+
+      mkAgentRuntimePackage = pkgs: remoteDevPackage: runtimePackage:
+        pkgs.runCommand "remote-dev-agent-runtime" { } ''
+          mkdir -p $out/bin
+          install -m 0755 ${remoteDevPackage}/bin/remote-dev $out/bin/remote-dev
+          install -m 0755 ${runtimePackage}/bin/remote-dev-runtime $out/bin/remote-dev-runtime
+        '';
+
+      hostGroupPackages = system: pkgs:
+        let
+          mkHostGroupCommand = package: command: {
+            inherit package command;
+            relativePath = "bin/${command}";
+          };
+          mkHostGroupBundle =
+            { name
+            , closure
+            , commands ? []
+            , envProfile ? null
+            }:
+            pkgs.runCommand "remote-dev-host-group-${name}-${system}" { } (
+              let
+                linkClosure = pkgs.lib.concatImapStringsSep "\n" (index: package: ''
+                  ln -s ${package} "$out/.remote-dev/closure-roots/${toString index}"
+                '') closure;
+                linkCommands = pkgs.lib.concatMapStringsSep "\n" (spec: ''
+                  source_path="${spec.package}/${spec.relativePath}"
+                  output_path="$out/${spec.relativePath}"
+                  if [ ! -e "$source_path" ]; then
+                    echo "host group ${name}: missing command ${spec.command} at $source_path" >&2
+                    exit 1
+                  fi
+                  if [ -e "$output_path" ]; then
+                    echo "host group ${name}: duplicate command output ${spec.relativePath}" >&2
+                    exit 1
+                  fi
+                  mkdir -p "$(dirname "$output_path")"
+                  ln -s "$source_path" "$output_path"
+                '') commands;
+                linkEnvProfile =
+                  if envProfile == null then "" else ''
+                    ln -s ${envProfile} "$out/.remote-dev/env-profile"
+                  '';
+              in
+              ''
+                mkdir -p "$out/.remote-dev/closure-roots"
+                ${linkClosure}
+                ${linkCommands}
+                ${linkEnvProfile}
+              ''
+            );
+          defaultShellEnvProfile = pkgs.buildEnv {
+            name = "remote-dev-default-shell-v2-${system}";
+            paths = [
+              pkgs.bashInteractive
+              pkgs.coreutils
+            ];
+            pathsToLink = [ "/bin" ];
+          };
+          nixSourceBaseline = pkgs.runCommand "remote-dev-nix-source-baseline-${system}" { } ''
+            mkdir -p $out
+            ln -s ${pkgs.path} $out/nixpkgs
+          '';
+        in
+        {
+          host-base-tools = mkHostGroupBundle {
+            name = "host-base-tools";
+            closure = [
+              pkgs.bash
+              pkgs.coreutils
+              pkgs.curl
+              pkgs.iproute2
+              pkgs.nix
+              pkgs.openssh
+              pkgs.systemd
+              pkgs.util-linux
+            ];
+            commands = [
+              (mkHostGroupCommand pkgs.bash "bash")
+              (mkHostGroupCommand pkgs.curl "curl")
+              (mkHostGroupCommand pkgs.iproute2 "ip")
+              (mkHostGroupCommand pkgs.nix "nix")
+              (mkHostGroupCommand pkgs.nix "nix-store")
+              (mkHostGroupCommand pkgs.openssh "scp")
+              (mkHostGroupCommand pkgs.openssh "ssh")
+              (mkHostGroupCommand pkgs.openssh "ssh-keygen")
+              (mkHostGroupCommand pkgs.systemd "systemctl")
+              (mkHostGroupCommand pkgs.systemd "systemd-nspawn")
+              (mkHostGroupCommand pkgs.util-linux "nsenter")
+            ];
+          };
+          git-core = mkHostGroupBundle {
+            name = "git-core";
+            closure = [ pkgs.gitMinimal ];
+            commands = [
+              (mkHostGroupCommand pkgs.gitMinimal "git")
+              (mkHostGroupCommand pkgs.gitMinimal "git-cvsserver")
+              (mkHostGroupCommand pkgs.gitMinimal "git-http-backend")
+              (mkHostGroupCommand pkgs.gitMinimal "git-jump")
+              (mkHostGroupCommand pkgs.gitMinimal "git-receive-pack")
+              (mkHostGroupCommand pkgs.gitMinimal "git-shell")
+              (mkHostGroupCommand pkgs.gitMinimal "git-upload-archive")
+              (mkHostGroupCommand pkgs.gitMinimal "git-upload-pack")
+              (mkHostGroupCommand pkgs.gitMinimal "scalar")
+            ];
+          };
+          mosh-transport = mkHostGroupBundle {
+            name = "mosh-transport";
+            closure = [ pkgs.mosh ];
+            commands = [ (mkHostGroupCommand pkgs.mosh "mosh-server") ];
+          };
+          default-dev-shell-prefill = mkHostGroupBundle {
+            name = "default-dev-shell-prefill";
+            closure = [ defaultShellEnvProfile ];
+            envProfile = defaultShellEnvProfile;
+          };
+          nix-source-baseline = mkHostGroupBundle {
+            name = "nix-source-baseline";
+            closure = [ nixSourceBaseline ];
+          };
+          shell-startup = mkHostGroupBundle {
+            name = "shell-startup";
+            closure = [ pkgs.zsh pkgs.starship ];
+            commands = [
+              (mkHostGroupCommand pkgs.zsh "zsh")
+              (mkHostGroupCommand pkgs.starship "starship")
+            ];
+          };
+          shell-extras = mkHostGroupBundle {
+            name = "shell-extras";
+            closure = [ pkgs.fzf ];
+            commands = [ (mkHostGroupCommand pkgs.fzf "fzf") ];
+          };
+          vscode-compat = mkHostGroupBundle {
+            name = "vscode-compat";
+            closure = [ pkgs.patchelf ];
+            commands = [ (mkHostGroupCommand pkgs.patchelf "patchelf") ];
+          };
+          compression-tools = mkHostGroupBundle {
+            name = "compression-tools";
+            closure = [ pkgs.zstd ];
+            commands = [ (mkHostGroupCommand pkgs.zstd "zstd") ];
+          };
+          build-baseline = mkHostGroupBundle {
+            name = "build-baseline";
+            closure = [ pkgs.gnumake pkgs.pkg-config ];
+            commands = [
+              (mkHostGroupCommand pkgs.pkg-config "pkg-config")
+              (mkHostGroupCommand pkgs.gnumake "make")
+            ];
+          };
+          c-toolchain-gcc = mkHostGroupBundle {
+            name = "c-toolchain-gcc";
+            closure = [ pkgs.gcc ];
+            commands = [
+              (mkHostGroupCommand pkgs.gcc "cc")
+              (mkHostGroupCommand pkgs.gcc "gcc")
+            ];
+          };
+          c-toolchain-clang = mkHostGroupBundle {
+            name = "c-toolchain-clang";
+            closure = [ pkgs.clang ];
+            commands = [ (mkHostGroupCommand pkgs.clang "clang") ];
+          };
+          dev-diagnostics = mkHostGroupBundle {
+            name = "dev-diagnostics";
+            closure = [
+              pkgs.file
+              pkgs.glibc.bin
+              pkgs.strace
+            ];
+            commands = [
+              (mkHostGroupCommand pkgs.strace "strace")
+              (mkHostGroupCommand pkgs.file "file")
+              (mkHostGroupCommand pkgs.glibc.bin "ldd")
+            ];
+          };
+        };
+
+    in
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = import nixpkgs { inherit system; };
+        lib = nixpkgs.lib;
+      in
+      {
+        packages = __PACKAGES__;
+      });
+}
