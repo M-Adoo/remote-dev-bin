@@ -8,14 +8,14 @@
     "bin/remote-dev"
   ],
   "cargo_target": "aarch64-unknown-linux-musl",
-  "generated_at": "2026-08-21T09:01:24Z",
+  "generated_at": "2026-08-22T03:41:54Z",
   "kind": "cli-bundle",
   "package": "remote-dev",
   "schema_version": 2,
-  "sha256": "be4baf402c852e5054aa207f7c340956ff3d2a01cccfce66b8b7f4813f675c92",
-  "source_ref": "remote-dev-bin-test/4f377337334a-1787302684",
+  "sha256": "31f4aeb842e49d7ad040d097612c1f854654f3ace6bd44236ef4988ff8ad5deb",
+  "source_ref": "12187bbf00d51d5684ffa8b955d61b70fd589f9a",
   "source_repo": "M-Adoo/remote-dev",
-  "source_sha": "4f377337334ad14c8a7a6cdc59ab11d8aefdaa7b",
+  "source_sha": "12187bbf00d51d5684ffa8b955d61b70fd589f9a",
   "system": "aarch64-linux",
   "tarball": "artifacts/remote-dev-aarch64-linux.tar.gz",
   "target": "release"
