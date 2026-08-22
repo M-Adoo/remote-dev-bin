@@ -314,6 +314,24 @@ jobs:
       - name: Install gcloud
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Verify production deployer read boundary
+        run: |
+          for ROLE in \
+            roles/browser \
+            roles/cloudtasks.viewer \
+            roles/cloudscheduler.viewer \
+            roles/iam.serviceAccountViewer
+          do
+            MEMBER="$(gcloud projects get-iam-policy "$TARGET_PROJECT" \
+              --flatten='bindings[].members' \
+              --filter="bindings.role=$ROLE AND bindings.members=serviceAccount:$DEPLOYER_SERVICE_ACCOUNT" \
+              --format='value(bindings.members)')"
+            if [ "$MEMBER" != "serviceAccount:$DEPLOYER_SERVICE_ACCOUNT" ]; then
+              echo "deployer must have $ROLE before production deployment" >&2
+              exit 1
+            fi
+          done
+
       - name: Verify production runtime secrets
         run: |
           RUNTIME_SERVICE_ACCOUNT="remote-dev-host-service@$TARGET_PROJECT.iam.gserviceaccount.com"
