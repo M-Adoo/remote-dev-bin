@@ -1,0 +1,27 @@
+[
+  {
+    "name": "delete-host-service-older-than-7d",
+    "action": {
+      "type": "DELETE"
+    },
+    "condition": {
+      "olderThan": "604800s",
+      "packageNamePrefixes": [
+        "host-service"
+      ],
+      "tagState": "ANY"
+    }
+  },
+  {
+    "name": "keep-host-service-recent-10",
+    "action": {
+      "type": "KEEP"
+    },
+    "mostRecentVersions": {
+      "keepCount": 10,
+      "packageNamePrefixes": [
+        "host-service"
+      ]
+    }
+  }
+]
