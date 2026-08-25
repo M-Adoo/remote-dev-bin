@@ -2712,11 +2712,22 @@ def assert_successful_test_run_delete_workflow(workflow: str) -> None:
 def assert_workflows(repo_root: Path) -> None:
     test = (repo_root / ".github/workflows/publish-test.yml").read_text()
     release = (repo_root / ".github/workflows/publish-release.yml").read_text()
+    sync_prod_artifact_cleanup = (
+        repo_root / ".github/workflows/sync-prod-artifact-cleanup.yml"
+    ).read_text()
     cleanup = (repo_root / ".github/workflows/cleanup-host-service-test.yml").read_text()
     delete_successful_test_run = (
         repo_root / ".github/workflows/delete-successful-test-run.yml"
     ).read_text()
-    combined = "\n".join([test, release, cleanup, delete_successful_test_run])
+    combined = "\n".join(
+        [
+            test,
+            release,
+            sync_prod_artifact_cleanup,
+            cleanup,
+            delete_successful_test_run,
+        ]
+    )
     if "pull_request" in combined or "pull_request_target" in combined:
         raise Fail("publish workflows must not run on pull_request events")
     for forbidden in ("cloud:", "project:"):
@@ -2744,6 +2755,76 @@ def assert_workflows(repo_root: Path) -> None:
         raise Fail("publish-test must target host-service-test")
     if "REMOTE_DEV_CONFIRM_PROD" not in release or "remote-dev-host-prod" not in release:
         raise Fail("publish-release must carry the prod confirmation guard")
+    cleanup_policy = json.loads(
+        (repo_root / "infra/host-service-artifact-cleanup-policies.json").read_text()
+    )
+    expected_cleanup_policy = [
+        {
+            "name": "delete-host-service-older-than-7d",
+            "action": {"type": "DELETE"},
+            "condition": {
+                "olderThan": "604800s",
+                "packageNamePrefixes": ["host-service"],
+                "tagState": "ANY",
+            },
+        },
+        {
+            "name": "keep-host-service-recent-10",
+            "action": {"type": "KEEP"},
+            "mostRecentVersions": {
+                "keepCount": 10,
+                "packageNamePrefixes": ["host-service"],
+            },
+        },
+    ]
+    if cleanup_policy != expected_cleanup_policy:
+        raise Fail("HostService Artifact Registry cleanup policy contract changed")
+    for workflow_name, workflow in (
+        ("publish-release", release),
+        ("sync-prod-artifact-cleanup", sync_prod_artifact_cleanup),
+    ):
+        if "environment: prod" not in workflow:
+            raise Fail(f"{workflow_name} must use the protected prod environment")
+        for marker in (
+            "TARGET_PROJECT: remote-dev-host-prod",
+            "REMOTE_DEV_CONFIRM_PROD",
+            "EXPECTED_DEPLOYER_SERVICE_ACCOUNT",
+            "ARTIFACT_CLEANUP_ROLE_ID: remoteDevArtifactRepositoryUpdater",
+            "infra/host-service-artifact-cleanup-policies.json",
+        ):
+            if marker not in workflow:
+                raise Fail(f"{workflow_name} cleanup boundary is missing {marker!r}")
+        authority_step = workflow_step(
+            workflow,
+            "- name: Verify cleanup policy authority",
+            workflow_name,
+        )
+        for marker in (
+            "gcloud artifacts repositories get-iam-policy",
+            "projects/$TARGET_PROJECT/roles/$ARTIFACT_CLEANUP_ROLE_ID",
+            "serviceAccount:$DEPLOYER_SERVICE_ACCOUNT",
+        ):
+            if marker not in authority_step:
+                raise Fail(f"{workflow_name} cleanup authority check is missing {marker!r}")
+        sync_step_name = (
+            "- name: Sync Artifact Registry cleanup policy"
+            if workflow_name == "publish-release"
+            else "- name: Sync and verify cleanup policy"
+        )
+        sync_step = workflow_step(workflow, sync_step_name, workflow_name)
+        for marker in (
+            "gcloud artifacts repositories set-cleanup-policies",
+            "--no-dry-run",
+            "gcloud artifacts repositories list-cleanup-policies",
+            "diff -u",
+            "(.cleanupPolicyDryRun // false) == false",
+        ):
+            if marker not in sync_step:
+                raise Fail(f"{workflow_name} cleanup sync is missing {marker!r}")
+    if "workflow_dispatch:" not in sync_prod_artifact_cleanup:
+        raise Fail("production cleanup sync must be manually dispatched")
+    if "pull_request" in sync_prod_artifact_cleanup or "schedule:" in sync_prod_artifact_cleanup:
+        raise Fail("production cleanup sync must not run automatically")
     deployer_read_check = workflow_step(
         release,
         "- name: Verify production deployer read boundary",

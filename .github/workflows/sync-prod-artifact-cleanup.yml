@@ -1,0 +1,95 @@
+name: Sync Production Artifact Cleanup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-prod-artifact-cleanup
+  cancel-in-progress: false
+
+env:
+  TARGET_PROJECT: remote-dev-host-prod
+  REMOTE_DEV_CONFIRM_PROD: ${{ vars.REMOTE_DEV_CONFIRM_PROD }}
+  EXPECTED_DEPLOYER_SERVICE_ACCOUNT: remote-dev-github-deployer@remote-dev-host-prod.iam.gserviceaccount.com
+  DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+  REGION: us-west1
+  IMAGE_REPOSITORY: remote-dev
+  ARTIFACT_CLEANUP_ROLE_ID: remoteDevArtifactRepositoryUpdater
+  ARTIFACT_CLEANUP_POLICY: infra/host-service-artifact-cleanup-policies.json
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Confirm protected production target
+        run: |
+          if [ "$REMOTE_DEV_CONFIRM_PROD" != "$TARGET_PROJECT" ]; then
+            echo "REMOTE_DEV_CONFIRM_PROD must match $TARGET_PROJECT" >&2
+            exit 1
+          fi
+          if [ "$DEPLOYER_SERVICE_ACCOUNT" != "$EXPECTED_DEPLOYER_SERVICE_ACCOUNT" ]; then
+            echo "GCP_DEPLOYER_SERVICE_ACCOUNT must exactly match $EXPECTED_DEPLOYER_SERVICE_ACCOUNT" >&2
+            exit 1
+          fi
+
+      - name: Checkout publisher
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - name: Install gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Verify cleanup policy authority
+        run: |
+          ROLE="projects/$TARGET_PROJECT/roles/$ARTIFACT_CLEANUP_ROLE_ID"
+          MEMBER="$(gcloud artifacts repositories get-iam-policy "$IMAGE_REPOSITORY" \
+            --project "$TARGET_PROJECT" \
+            --location "$REGION" \
+            --flatten='bindings[].members' \
+            --filter="bindings.role=$ROLE AND bindings.members=serviceAccount:$DEPLOYER_SERVICE_ACCOUNT" \
+            --format='value(bindings.members)')"
+          if [ "$MEMBER" != "serviceAccount:$DEPLOYER_SERVICE_ACCOUNT" ]; then
+            echo "deployer must have $ROLE on $IMAGE_REPOSITORY" >&2
+            exit 1
+          fi
+
+      - name: Sync and verify cleanup policy
+        run: |
+          gcloud artifacts repositories set-cleanup-policies "$IMAGE_REPOSITORY" \
+            --project "$TARGET_PROJECT" \
+            --location "$REGION" \
+            --policy "$ARTIFACT_CLEANUP_POLICY" \
+            --no-dry-run \
+            --quiet
+
+          gcloud artifacts repositories list-cleanup-policies "$IMAGE_REPOSITORY" \
+            --project "$TARGET_PROJECT" \
+            --location "$REGION" \
+            --format=json \
+            > "$RUNNER_TEMP/actual-cleanup-policies.json"
+          jq -S 'sort_by(.name)' "$ARTIFACT_CLEANUP_POLICY" \
+            > "$RUNNER_TEMP/expected-cleanup-policies.json"
+          jq -S 'sort_by(.name)' "$RUNNER_TEMP/actual-cleanup-policies.json" \
+            > "$RUNNER_TEMP/normalized-actual-cleanup-policies.json"
+          diff -u \
+            "$RUNNER_TEMP/expected-cleanup-policies.json" \
+            "$RUNNER_TEMP/normalized-actual-cleanup-policies.json"
+
+          gcloud artifacts repositories describe "$IMAGE_REPOSITORY" \
+            --project "$TARGET_PROJECT" \
+            --location "$REGION" \
+            --format=json \
+            > "$RUNNER_TEMP/repository.json"
+          jq -e '(.cleanupPolicyDryRun // false) == false' "$RUNNER_TEMP/repository.json"

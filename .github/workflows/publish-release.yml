@@ -31,6 +31,8 @@ env:
   MAINTENANCE_AUDIT_SCHEDULE: "17 */6 * * *"
   IMAGE_REPOSITORY: remote-dev
   IMAGE_NAME: host-service
+  ARTIFACT_CLEANUP_ROLE_ID: remoteDevArtifactRepositoryUpdater
+  ARTIFACT_CLEANUP_POLICY: infra/host-service-artifact-cleanup-policies.json
   CARGO_TERM_COLOR: always
 
 jobs:
@@ -332,6 +334,20 @@ jobs:
             fi
           done
 
+      - name: Verify cleanup policy authority
+        run: |
+          ROLE="projects/$TARGET_PROJECT/roles/$ARTIFACT_CLEANUP_ROLE_ID"
+          MEMBER="$(gcloud artifacts repositories get-iam-policy "$IMAGE_REPOSITORY" \
+            --project "$TARGET_PROJECT" \
+            --location "$REGION" \
+            --flatten='bindings[].members' \
+            --filter="bindings.role=$ROLE AND bindings.members=serviceAccount:$DEPLOYER_SERVICE_ACCOUNT" \
+            --format='value(bindings.members)')"
+          if [ "$MEMBER" != "serviceAccount:$DEPLOYER_SERVICE_ACCOUNT" ]; then
+            echo "deployer must have $ROLE on $IMAGE_REPOSITORY" >&2
+            exit 1
+          fi
+
       - name: Verify production runtime secrets
         run: |
           RUNTIME_SERVICE_ACCOUNT="remote-dev-host-service@$TARGET_PROJECT.iam.gserviceaccount.com"
@@ -438,6 +454,36 @@ jobs:
             echo "runtime service account must have roles/iam.serviceAccountUser on itself" >&2
             exit 1
           fi
+
+      - name: Sync Artifact Registry cleanup policy
+        run: |
+          POLICY="publisher/$ARTIFACT_CLEANUP_POLICY"
+          gcloud artifacts repositories set-cleanup-policies "$IMAGE_REPOSITORY" \
+            --project "$TARGET_PROJECT" \
+            --location "$REGION" \
+            --policy "$POLICY" \
+            --no-dry-run \
+            --quiet
+
+          gcloud artifacts repositories list-cleanup-policies "$IMAGE_REPOSITORY" \
+            --project "$TARGET_PROJECT" \
+            --location "$REGION" \
+            --format=json \
+            > "$RUNNER_TEMP/actual-cleanup-policies.json"
+          jq -S 'sort_by(.name)' "$POLICY" \
+            > "$RUNNER_TEMP/expected-cleanup-policies.json"
+          jq -S 'sort_by(.name)' "$RUNNER_TEMP/actual-cleanup-policies.json" \
+            > "$RUNNER_TEMP/normalized-actual-cleanup-policies.json"
+          diff -u \
+            "$RUNNER_TEMP/expected-cleanup-policies.json" \
+            "$RUNNER_TEMP/normalized-actual-cleanup-policies.json"
+
+          gcloud artifacts repositories describe "$IMAGE_REPOSITORY" \
+            --project "$TARGET_PROJECT" \
+            --location "$REGION" \
+            --format=json \
+            > "$RUNNER_TEMP/repository.json"
+          jq -e '(.cleanupPolicyDryRun // false) == false' "$RUNNER_TEMP/repository.json"
 
       - name: Apply production Firestore indexes
         run: |

@@ -66,6 +66,14 @@ grant `secretAccessor` only as configured to the exact HostService runtime
 service account. The publisher reads metadata and IAM policy only; it never
 reads Secret payloads or creates production Secrets.
 
+Production Artifact Registry cleanup is defined in
+`infra/host-service-artifact-cleanup-policies.json`. It deletes `host-service`
+versions older than seven days while retaining at least the ten most recent
+versions. Both the dedicated `Sync Production Artifact Cleanup` workflow and
+each production release apply the policy with deletion enabled and require an
+exact live readback. They run only in the protected `prod` environment with the
+fixed production project and deployer identity.
+
 Both HostService deployments allow unauthenticated Cloud Run invocation because
 the V7 application owns per-route Accounts JWT and Google OIDC authorization.
 Each deployment must pass a public `/ready` check reporting runtime API version
