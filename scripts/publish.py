@@ -3913,8 +3913,21 @@ def assert_workflows(repo_root: Path) -> None:
         ):
             if marker not in finalize:
                 raise Fail(f"{target} finalize workflow is missing {marker!r}")
-        if "cloud-provider-gcp-credentials" in finalize:
-            raise Fail(f"{target} finalize must not delete the separately audited GCP provider Secret")
+        if target == "test":
+            for marker in (
+                "confirm_gcp_audit",
+                "source-revisions-firestore-compute-iam-audited",
+                "remote-dev-test-cloud-provider-gcp-credentials",
+                "Retire separately audited legacy GCP provider Secret",
+            ):
+                if marker not in finalize:
+                    raise Fail(f"test finalize is missing separately audited GCP retirement marker {marker!r}")
+            if finalize.index("gcloud run revisions delete") > finalize.index(
+                "Retire separately audited legacy GCP provider Secret"
+            ):
+                raise Fail("test finalize must delete legacy revisions before the GCP provider Secret")
+        elif "cloud-provider-gcp-credentials" in finalize:
+            raise Fail("prod finalize must not name the test-only GCP provider Secret")
     assert_test_cleanup_workflow(cleanup)
     assert_successful_test_run_delete_workflow(delete_successful_test_run)
     assert_test_deployment_verification_workflow(verify_test)
