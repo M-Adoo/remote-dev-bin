@@ -3270,7 +3270,7 @@ def assert_publish_workflow_order(
     workflow: str,
     branch_push: str,
     pre_resolve_marker: str,
-    refresh_provider_spots: bool,
+    provider_refresh_origin: str | None,
 ) -> None:
     push_image = required_index(workflow, "- name: Push image", name)
     render_tree = required_index(workflow, "publish.py render-tree", name)
@@ -3305,7 +3305,7 @@ def assert_publish_workflow_order(
         < readiness_step
         < readiness_check
     )
-    if refresh_provider_spots:
+    if provider_refresh_origin is not None:
         provider_refresh_step = required_index(workflow, "- name: Refresh provider spots", name)
         provider_refresh_command = required_index(workflow, "/v1/ops/provider-spots/refresh", name)
         provider_spots_verify = required_index(workflow, "provider-spots.json", name)
@@ -3337,9 +3337,17 @@ def assert_publish_workflow_order(
         raise Fail(f"{name} must pin Cloud Run to the resolved remote-dev-bin artifact ref")
     if "--allow-unauthenticated" not in workflow or "--no-allow-unauthenticated" in workflow:
         raise Fail(f"{name} must expose Cloud Run ingress for application-owned authentication")
-    if refresh_provider_spots:
+    if provider_refresh_origin is not None:
         if ".refresh.failed == 0" not in workflow:
             raise Fail(f"{name} must fail when provider spot refresh reports a failure")
+        for marker in (
+            ".refresh.refreshed >= 1",
+            '.provider == "aws"',
+            '.result == "refreshed"',
+            ".active == true",
+        ):
+            if marker not in workflow:
+                raise Fail(f"{name} must prove the active AWS provider refreshed: missing {marker!r}")
         if 'select(.name == "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF")' not in workflow:
             raise Fail(f"{name} must verify the deployed revision pins the published artifact ref")
         if '== [$ref]' not in workflow:
@@ -3352,8 +3360,8 @@ def assert_publish_workflow_order(
             raise Fail(f"{name} must allow an empty provider inventory during initial bootstrap")
         if ".launch.artifact_sha" in workflow:
             raise Fail(f"{name} must not require launch material in raw provider spot snapshots")
-        if 'HOST_SERVICE_PUBLIC_ORIGIN: https://adoo.dev' not in workflow:
-            raise Fail(f"{name} must pin the production Google OIDC audience")
+        if f"HOST_SERVICE_PUBLIC_ORIGIN: {provider_refresh_origin}" not in workflow:
+            raise Fail(f"{name} must pin the exact Google OIDC audience")
         ops_auth = workflow_step(
             workflow,
             "- name: Mint deployer ops ID token",
@@ -3385,6 +3393,64 @@ def assert_publish_workflow_order(
         raise Fail(f"{name} must render from the image digest step, not a deploy step")
     if "- name: Push image and deploy Cloud Run" in workflow:
         raise Fail(f"{name} must not deploy Cloud Run before the target branch push")
+
+
+def assert_test_deployment_verification_workflow(workflow: str) -> None:
+    for marker in (
+        "workflow_dispatch:",
+        "environment: test",
+        "TARGET_PROJECT: remote-dev-host-test",
+        "remote-dev-github-deployer@remote-dev-host-test.iam.gserviceaccount.com",
+        "remote-dev-host-service@remote-dev-host-test.iam.gserviceaccount.com",
+        "remote-dev-test-host-service-core",
+        "remote-dev-test-host-service-providers",
+        "HOST_SERVICE_PUBLIC_ORIGIN: https://test.adoo.dev",
+        "latestReadyRevisionName",
+        'gcloud run revisions describe "$REVISION"',
+        ".status.traffic[0].percent == 100",
+        "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF",
+        "REMOTE_DEV_HOST_CORE_SECRETS_VERSION",
+        "REMOTE_DEV_HOST_PROVIDER_SECRETS_VERSION",
+        'select(test("^[1-9][0-9]*$"))',
+        "gcloud secrets versions describe",
+        'test "$STATE" = "ENABLED"',
+        "roles/secretmanager.secretAccessor",
+        "roles/secretmanager.secretVersionManager",
+        ".store_read == \"ok\"",
+        "- name: Mint deployer ops ID token",
+        "token_format: id_token",
+        "id_token_audience: ${{ env.HOST_SERVICE_PUBLIC_ORIGIN }}",
+        "create_credentials_file: false",
+        "export_environment_variables: false",
+        "/v1/ops/provider-spots/refresh",
+        ".refresh.failed == 0",
+        ".refresh.refreshed >= 1",
+        '.provider == "aws"',
+        '.result == "refreshed"',
+        ".active == true",
+        "/v1/ops/provider-spots",
+    ):
+        if marker not in workflow:
+            raise Fail(f"test deployment verification is missing {marker!r}")
+    for forbidden in (
+        "pull_request",
+        "schedule:",
+        "gcloud run deploy",
+        "docker build",
+        "cargo build",
+        "git push",
+        "gcloud secrets versions access",
+        "REMOTE_DEV_TEST_CLI_ACCESS_TOKEN",
+        "REMOTE_DEV_TEST_WEB_ACCESS_TOKEN",
+        "/v1/host-admin/",
+        "/v7/runtime/acquire",
+        "gcloud auth print-identity-token",
+    ):
+        if forbidden in workflow:
+            raise Fail(
+                "test deployment verification must use only the protected machine "
+                f"identity boundary, found {forbidden!r}"
+            )
 
 
 def assert_test_cleanup_workflow(cleanup: str) -> None:
@@ -3458,6 +3524,9 @@ def assert_successful_test_run_delete_workflow(workflow: str) -> None:
 def assert_workflows(repo_root: Path) -> None:
     test = (repo_root / ".github/workflows/publish-test.yml").read_text()
     release = (repo_root / ".github/workflows/publish-release.yml").read_text()
+    verify_test = (
+        repo_root / ".github/workflows/verify-host-service-test.yml"
+    ).read_text()
     secret_workflows = {
         path.stem: path.read_text()
         for path in sorted((repo_root / ".github/workflows").glob("*secret-bundle*.yml"))
@@ -3481,6 +3550,7 @@ def assert_workflows(repo_root: Path) -> None:
         [
             test,
             release,
+            verify_test,
             sync_prod_artifact_cleanup,
             cleanup,
             delete_successful_test_run,
@@ -3804,6 +3874,10 @@ def assert_workflows(repo_root: Path) -> None:
             "REMOTE_DEV_HOST_CORE_SECRETS_VERSION",
             "REMOTE_DEV_HOST_PROVIDER_SECRETS_VERSION",
             ".refresh.failed == 0",
+            ".refresh.refreshed >= 1",
+            '.provider == "aws"',
+            '.result == "refreshed"',
+            ".active == true",
         ):
             if marker not in promotion:
                 raise Fail(f"{target} promotion is missing {marker!r}")
@@ -3831,6 +3905,11 @@ def assert_workflows(repo_root: Path) -> None:
             "user:Adoo@outlook.com",
             "roles/secretmanager.secretAccessor",
             "roles/secretmanager.secretVersionManager",
+            ".refresh.failed == 0",
+            ".refresh.refreshed >= 1",
+            '.provider == "aws"',
+            '.result == "refreshed"',
+            ".active == true",
         ):
             if marker not in finalize:
                 raise Fail(f"{target} finalize workflow is missing {marker!r}")
@@ -3838,19 +3917,20 @@ def assert_workflows(repo_root: Path) -> None:
             raise Fail(f"{target} finalize must not delete the separately audited GCP provider Secret")
     assert_test_cleanup_workflow(cleanup)
     assert_successful_test_run_delete_workflow(delete_successful_test_run)
+    assert_test_deployment_verification_workflow(verify_test)
     assert_publish_workflow_order(
         "publish-test",
         test,
         'git push --force origin "$TARGET_BRANCH"',
         "- name: Apply host-service-test retention",
-        False,
+        "https://test.adoo.dev",
     )
     assert_publish_workflow_order(
         "publish-release",
         release,
         'git push origin "$TARGET_BRANCH"',
         "- name: Commit release branch",
-        True,
+        "https://adoo.dev",
     )
 
 

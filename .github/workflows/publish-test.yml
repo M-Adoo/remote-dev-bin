@@ -33,6 +33,7 @@ env:
   DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
   REGION: us-west1
   SERVICE: remote-dev-host-service
+  HOST_SERVICE_PUBLIC_ORIGIN: https://test.adoo.dev
   IMAGE_REPOSITORY: remote-dev
   IMAGE_NAME: host-service
   CARGO_TERM_COLOR: always
@@ -491,6 +492,52 @@ jobs:
           curl -fsS "$SERVICE_URL/ready" -o "$RUNNER_TEMP/ready.json"
           jq -e '.deployment == "test" and .runtime_api_version == 7 and .status == "ok"' \
             "$RUNNER_TEMP/ready.json"
+
+      - name: Mint deployer ops ID token
+        id: ops-auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ env.HOST_SERVICE_PUBLIC_ORIGIN }}
+          id_token_include_email: true
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Refresh provider spots
+        run: |
+          set -euo pipefail
+          SERVICE_URL="$(gcloud run services describe "$SERVICE" \
+            --project "$TARGET_PROJECT" \
+            --region "$REGION" \
+            --format='value(status.url)')"
+          case "$SERVICE_URL" in
+            https://*) ;;
+            *) echo "Cloud Run status.url must be https, got $SERVICE_URL" >&2; exit 1 ;;
+          esac
+          IDENTITY_TOKEN="${{ steps.ops-auth.outputs.id_token }}"
+          test -n "$IDENTITY_TOKEN"
+          curl -fsS -X POST \
+            -H "authorization: Bearer $IDENTITY_TOKEN" \
+            -H 'content-length: 0' \
+            "$SERVICE_URL/v1/ops/provider-spots/refresh" \
+            -o "$RUNNER_TEMP/provider-spots-refresh.json"
+          jq -e '.refresh.failed == 0 and .refresh.refreshed >= 1 and
+            any(.refresh.providers[];
+              .provider == "aws" and .result == "refreshed" and .active == true)' \
+            "$RUNNER_TEMP/provider-spots-refresh.json"
+          curl -fsS -H "authorization: Bearer $IDENTITY_TOKEN" \
+            "$SERVICE_URL/v1/ops/provider-spots" \
+            -o "$RUNNER_TEMP/provider-spots.json"
+          jq -e \
+            '(.providers | type == "array") and
+             (.spots | type == "array") and
+             all(.spots[];
+               (.provider | type == "string" and length > 0) and
+               (.native_machine | type == "string" and length > 0) and
+               (.observed_at_ms | type == "number"))' \
+            "$RUNNER_TEMP/provider-spots.json"
 
       - name: Cleanup Cloud Run revisions
         run: |
