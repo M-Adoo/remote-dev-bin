@@ -18,6 +18,7 @@ concurrency:
 
 env:
   TARGET: release
+  DEPLOYMENT: prod
   TARGET_BRANCH: host-service-release
   TARGET_PROJECT: remote-dev-host-prod
   REMOTE_DEV_CONFIRM_PROD: ${{ vars.REMOTE_DEV_CONFIRM_PROD }}
@@ -348,27 +349,35 @@ jobs:
             exit 1
           fi
 
-      - name: Verify production runtime secrets
+      - name: Resolve and verify Secret bundle pins
+        id: secret-pins
         run: |
+          set -euo pipefail
+          TMP_DIR="$(mktemp -d "$RUNNER_TEMP/secret-pins.XXXXXX")"
+          trap 'rm -rf "$TMP_DIR"' EXIT
           RUNTIME_SERVICE_ACCOUNT="remote-dev-host-service@$TARGET_PROJECT.iam.gserviceaccount.com"
-          for SECRET in \
-            remote-dev-prod-accounts-owner-sub \
-            remote-dev-prod-accounts-login-token-key \
-            remote-dev-prod-hostctrl-management-key \
-            remote-dev-prod-cloud-provider-aws-credentials
+          gcloud run services describe "$SERVICE" \
+            --project "$TARGET_PROJECT" \
+            --region "$REGION" \
+            --format=json > "$TMP_DIR/service.json"
+          CURRENT_REVISION="$(jq -er '.status.latestReadyRevisionName |
+            select(type == "string" and length > 0)' "$TMP_DIR/service.json")"
+          gcloud run revisions describe "$CURRENT_REVISION" \
+            --project "$TARGET_PROJECT" \
+            --region "$REGION" \
+            --format=json > "$TMP_DIR/current-revision.json"
+          for BUNDLE in core providers
           do
+            case "$BUNDLE" in
+              core) SECRET="remote-dev-prod-host-service-core" ;;
+              providers) SECRET="remote-dev-prod-host-service-providers" ;;
+            esac
             gcloud secrets describe "$SECRET" \
               --project "$TARGET_PROJECT" \
               --format='value(name)' > /dev/null
-            ENABLED_VERSION="$(gcloud secrets versions list "$SECRET" \
+            gcloud secrets versions list "$SECRET" \
               --project "$TARGET_PROJECT" \
-              --filter='state=ENABLED' \
-              --limit=1 \
-              --format='value(name)')"
-            if [ -z "$ENABLED_VERSION" ]; then
-              echo "$SECRET must have an enabled version" >&2
-              exit 1
-            fi
+              --format=json > "$TMP_DIR/$BUNDLE-versions.json"
             ACCESSOR="$(gcloud secrets get-iam-policy "$SECRET" \
               --project "$TARGET_PROJECT" \
               --flatten='bindings[].members' \
@@ -378,7 +387,28 @@ jobs:
               echo "$SECRET must grant secretAccessor to the exact runtime service account" >&2
               exit 1
             fi
+            VERSION_MANAGER="$(gcloud secrets get-iam-policy "$SECRET" \
+              --project "$TARGET_PROJECT" \
+              --flatten='bindings[].members' \
+              --filter="bindings.role:roles/secretmanager.secretVersionManager AND bindings.members:serviceAccount:$EXPECTED_DEPLOYER_SERVICE_ACCOUNT" \
+              --format='value(bindings.members)')"
+            if [ "$VERSION_MANAGER" != "serviceAccount:$EXPECTED_DEPLOYER_SERVICE_ACCOUNT" ]; then
+              echo "$SECRET must grant secretVersionManager to the exact deployer service account" >&2
+              exit 1
+            fi
           done
+          python3 publisher/scripts/publish.py plan-secret-pins \
+            --target "$DEPLOYMENT" \
+            --mode publish \
+            --service-json "$TMP_DIR/current-revision.json" \
+            --core-versions-json "$TMP_DIR/core-versions.json" \
+            --providers-versions-json "$TMP_DIR/providers-versions.json" \
+            --output "$TMP_DIR/plan.json"
+          {
+            echo "core_version=$(jq -r '.core.selected' "$TMP_DIR/plan.json")"
+            echo "providers_version=$(jq -r '.providers.selected' "$TMP_DIR/plan.json")"
+            echo "first_switch=$(jq -r '.first_switch' "$TMP_DIR/plan.json")"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Verify production async infrastructure
         run: |
@@ -610,9 +640,11 @@ jobs:
           docker push "$IMAGE"
           DEPLOYED_IMAGE="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")"
           DIGEST="${DEPLOYED_IMAGE#*@}"
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
-          echo "deployed_image=$DEPLOYED_IMAGE" >> "$GITHUB_OUTPUT"
+          {
+            echo "image=$IMAGE"
+            echo "digest=$DIGEST"
+            echo "deployed_image=$DEPLOYED_IMAGE"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Render release branch
         run: |
@@ -680,7 +712,7 @@ jobs:
             --region "$REGION" \
             --project "$TARGET_PROJECT" \
             --service-account "$SERVICE_ACCOUNT" \
-            --set-env-vars "REMOTE_DEV_HOST_SERVICE_CONFIG=/app/config/host-service-prod.toml,REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF=${{ steps.artifact.outputs.ref }}" \
+            --set-env-vars "REMOTE_DEV_HOST_SERVICE_CONFIG=/app/config/host-service-prod.toml,REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF=${{ steps.artifact.outputs.ref }},REMOTE_DEV_HOST_CORE_SECRETS_VERSION=${{ steps.secret-pins.outputs.core_version }},REMOTE_DEV_HOST_PROVIDER_SECRETS_VERSION=${{ steps.secret-pins.outputs.providers_version }}" \
             --cpu 1 \
             --concurrency 5 \
             --timeout 600 \
@@ -695,10 +727,16 @@ jobs:
             --region "$REGION" \
             --format=json \
             > "$RUNNER_TEMP/host-service.json"
-          jq -e --arg ref '${{ steps.artifact.outputs.ref }}' \
+          jq -e \
+            --arg ref '${{ steps.artifact.outputs.ref }}' \
+            --arg core '${{ steps.secret-pins.outputs.core_version }}' \
+            --arg providers '${{ steps.secret-pins.outputs.providers_version }}' \
             '([.spec.template.spec.containers[]?.env[]? |
-                select(.name == "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF") |
-                .value] == [$ref])' \
+                select(.name == "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF") | .value] == [$ref]) and
+             ([.spec.template.spec.containers[]?.env[]? |
+                select(.name == "REMOTE_DEV_HOST_CORE_SECRETS_VERSION") | .value] == [$core]) and
+             ([.spec.template.spec.containers[]?.env[]? |
+                select(.name == "REMOTE_DEV_HOST_PROVIDER_SECRETS_VERSION") | .value] == [$providers])' \
             "$RUNNER_TEMP/host-service.json"
           SERVICE_URL="$(gcloud run services describe "$SERVICE" \
             --project "$TARGET_PROJECT" \
