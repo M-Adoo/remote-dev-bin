@@ -45,7 +45,15 @@ HostService firstboot fetches only this archive and its checksum;
 
 `Publish Test Artifacts` is manual, requires an explicit private source ref,
 defaults to `aarch64`, and publishes only to `host-service-test` and
-`remote-dev-host-test`.
+`remote-dev-host-test`. After readiness it mints an audience-bound Google OIDC
+ID Token for the exact test deployer and verifies provider refresh through the
+machine-only ops surface. It never requires an Accounts user Access Token.
+
+`Verify HostService Test Deployment` is a protected, non-deploying verification
+for the currently serving test revision. It verifies 100% traffic, immutable
+image and artifact refs, enabled numeric Secret bundle pins, exact bundle IAM,
+`/ready`, and provider refresh. It does not build, publish, create a revision,
+or call Accounts-authenticated runtime and Host Admin routes.
 
 `Publish Release Artifacts` is manual, publishes only to
 `host-service-release` and `remote-dev-host-prod`, builds the full matrix, and

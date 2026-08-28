@@ -1,0 +1,169 @@
+name: Verify HostService Test Deployment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: host-service-test-deploy
+  cancel-in-progress: false
+
+env:
+  TARGET_PROJECT: remote-dev-host-test
+  EXPECTED_DEPLOYER_SERVICE_ACCOUNT: remote-dev-github-deployer@remote-dev-host-test.iam.gserviceaccount.com
+  DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+  RUNTIME_SERVICE_ACCOUNT: remote-dev-host-service@remote-dev-host-test.iam.gserviceaccount.com
+  CORE_SECRET: remote-dev-test-host-service-core
+  PROVIDERS_SECRET: remote-dev-test-host-service-providers
+  REGION: us-west1
+  SERVICE: remote-dev-host-service
+  HOST_SERVICE_PUBLIC_ORIGIN: https://test.adoo.dev
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    environment: test
+    steps:
+      - name: Confirm fixed test identity
+        run: |
+          set -euo pipefail
+          test "$DEPLOYER_SERVICE_ACCOUNT" = "$EXPECTED_DEPLOYER_SERVICE_ACCOUNT"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - name: Install gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Verify serving revision and Secret bundle pins
+        id: deployment
+        run: |
+          set -euo pipefail
+          TMP_DIR="$(mktemp -d "$RUNNER_TEMP/host-service-test-verification.XXXXXX")"
+          trap 'rm -rf "$TMP_DIR"' EXIT
+          gcloud run services describe "$SERVICE" \
+            --project "$TARGET_PROJECT" \
+            --region "$REGION" \
+            --format=json > "$TMP_DIR/service.json"
+          REVISION="$(jq -er '.status.latestReadyRevisionName |
+            select(type == "string" and length > 0)' "$TMP_DIR/service.json")"
+          jq -e --arg revision "$REVISION" \
+            '(.status.traffic | length == 1) and
+             (.status.traffic[0].revisionName == $revision) and
+             (.status.traffic[0].percent == 100)' \
+            "$TMP_DIR/service.json"
+          gcloud run revisions describe "$REVISION" \
+            --project "$TARGET_PROJECT" \
+            --region "$REGION" \
+            --format=json > "$TMP_DIR/revision.json"
+          IMAGE="$(jq -er '.spec.containers[0].image |
+            select(test("@sha256:[0-9a-f]{64}$"))' "$TMP_DIR/revision.json")"
+          ARTIFACT_REF="$(jq -er '[.spec.containers[0].env[]? |
+            select(.name == "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF") | .value] |
+            select(length == 1) | .[0] |
+            select(test("^github:M-Adoo/remote-dev-bin/[0-9a-f]{40}$"))' \
+            "$TMP_DIR/revision.json")"
+          CORE_VERSION="$(jq -er '[.spec.containers[0].env[]? |
+            select(.name == "REMOTE_DEV_HOST_CORE_SECRETS_VERSION") | .value] |
+            select(length == 1) | .[0] | select(test("^[1-9][0-9]*$"))' \
+            "$TMP_DIR/revision.json")"
+          PROVIDERS_VERSION="$(jq -er '[.spec.containers[0].env[]? |
+            select(.name == "REMOTE_DEV_HOST_PROVIDER_SECRETS_VERSION") | .value] |
+            select(length == 1) | .[0] | select(test("^[1-9][0-9]*$"))' \
+            "$TMP_DIR/revision.json")"
+          for BUNDLE in core providers
+          do
+            case "$BUNDLE" in
+              core) SECRET="$CORE_SECRET"; VERSION="$CORE_VERSION" ;;
+              providers) SECRET="$PROVIDERS_SECRET"; VERSION="$PROVIDERS_VERSION" ;;
+            esac
+            STATE="$(gcloud secrets versions describe "$VERSION" \
+              --secret "$SECRET" \
+              --project "$TARGET_PROJECT" \
+              --format='value(state)' | tr '[:lower:]' '[:upper:]')"
+            test "$STATE" = "ENABLED"
+            ACCESSOR="$(gcloud secrets get-iam-policy "$SECRET" \
+              --project "$TARGET_PROJECT" \
+              --flatten='bindings[].members' \
+              --filter="bindings.role:roles/secretmanager.secretAccessor AND bindings.members:serviceAccount:$RUNTIME_SERVICE_ACCOUNT" \
+              --format='value(bindings.members)')"
+            VERSION_MANAGER="$(gcloud secrets get-iam-policy "$SECRET" \
+              --project "$TARGET_PROJECT" \
+              --flatten='bindings[].members' \
+              --filter="bindings.role:roles/secretmanager.secretVersionManager AND bindings.members:serviceAccount:$DEPLOYER_SERVICE_ACCOUNT" \
+              --format='value(bindings.members)')"
+            test "$ACCESSOR" = "serviceAccount:$RUNTIME_SERVICE_ACCOUNT"
+            test "$VERSION_MANAGER" = "serviceAccount:$DEPLOYER_SERVICE_ACCOUNT"
+          done
+          SERVICE_URL="$(jq -er '.status.url |
+            select(type == "string" and startswith("https://"))' "$TMP_DIR/service.json")"
+          curl -fsS "$SERVICE_URL/ready" -o "$TMP_DIR/ready.json"
+          jq -e '.deployment == "test" and .runtime_api_version == 7 and
+            .status == "ok" and .store_read == "ok"' "$TMP_DIR/ready.json"
+          {
+            echo "revision=$REVISION"
+            echo "image=$IMAGE"
+            echo "artifact_ref=$ARTIFACT_REF"
+            echo "core_version=$CORE_VERSION"
+            echo "providers_version=$PROVIDERS_VERSION"
+            echo "service_url=$SERVICE_URL"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Mint deployer ops ID token
+        id: ops-auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ env.HOST_SERVICE_PUBLIC_ORIGIN }}
+          id_token_include_email: true
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Verify provider refresh
+        env:
+          SERVICE_URL: ${{ steps.deployment.outputs.service_url }}
+        run: |
+          set -euo pipefail
+          IDENTITY_TOKEN="${{ steps.ops-auth.outputs.id_token }}"
+          test -n "$IDENTITY_TOKEN"
+          curl -fsS -X POST \
+            -H "authorization: Bearer $IDENTITY_TOKEN" \
+            -H 'content-length: 0' \
+            "$SERVICE_URL/v1/ops/provider-spots/refresh" \
+            -o "$RUNNER_TEMP/provider-refresh.json"
+          jq -e '.refresh.failed == 0 and .refresh.refreshed >= 1 and
+            any(.refresh.providers[];
+              .provider == "aws" and .result == "refreshed" and .active == true)' \
+            "$RUNNER_TEMP/provider-refresh.json"
+          curl -fsS -H "authorization: Bearer $IDENTITY_TOKEN" \
+            "$SERVICE_URL/v1/ops/provider-spots" \
+            -o "$RUNNER_TEMP/provider-spots.json"
+          jq -e \
+            '(.providers | type == "array") and
+             (.spots | type == "array") and
+             all(.spots[];
+               (.provider | type == "string" and length > 0) and
+               (.native_machine | type == "string" and length > 0) and
+               (.observed_at_ms | type == "number"))' \
+            "$RUNNER_TEMP/provider-spots.json"
+          {
+            echo "### HostService test deployment verification"
+            echo "- revision: ${{ steps.deployment.outputs.revision }}"
+            echo "- image: ${{ steps.deployment.outputs.image }}"
+            echo "- artifact ref: ${{ steps.deployment.outputs.artifact_ref }}"
+            echo "- core version: ${{ steps.deployment.outputs.core_version }}"
+            echo "- providers version: ${{ steps.deployment.outputs.providers_version }}"
+            echo "- provider refresh failed: 0"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove verification files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/provider-refresh.json" "$RUNNER_TEMP/provider-spots.json"
