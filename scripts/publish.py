@@ -10,7 +10,6 @@ and retention cleanup.
 from __future__ import annotations
 
 import argparse
-import base64
 import datetime as dt
 import hashlib
 import json
@@ -22,7 +21,6 @@ import sys
 import tarfile
 import tempfile
 import time
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -75,7 +73,6 @@ CLOUD_RUN_TRAFFIC_REVISION_FIELDS = ("revisionName", "revision")
 GITHUB_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 ARCHIVE_MEMBER_NAME_RE = re.compile(r"^[A-Za-z0-9._+/-]+$")
 SECRET_VERSION_RE = re.compile(r"^[1-9][0-9]*$")
-SECRET_BUNDLE_MAX_BYTES = 64 * 1024
 HOST_ARTIFACT_REF_ENV = "REMOTE_DEV_HOST_ARTIFACTS_REMOTE_DEV_BIN_REF"
 HOST_CORE_VERSION_ENV = "REMOTE_DEV_HOST_CORE_SECRETS_VERSION"
 HOST_PROVIDER_VERSION_ENV = "REMOTE_DEV_HOST_PROVIDER_SECRETS_VERSION"
@@ -304,10 +301,6 @@ class SecretBundleTarget:
     deployer_service_account: str
     core_secret: str
     providers_secret: str
-    legacy_management_secret: str
-    legacy_owner_secret: str
-    legacy_login_secret: str
-    legacy_aws_secret: str
 
 
 @dataclass(frozen=True)
@@ -330,10 +323,6 @@ SECRET_BUNDLE_TARGETS: dict[str, SecretBundleTarget] = {
         ),
         core_secret="remote-dev-test-host-service-core",
         providers_secret="remote-dev-test-host-service-providers",
-        legacy_management_secret="remote-dev-test-hostctrl-management-key",
-        legacy_owner_secret="remote-dev-test-accounts-owner-sub",
-        legacy_login_secret="remote-dev-test-accounts-login-token-key",
-        legacy_aws_secret="remote-dev-test-cloud-provider-aws-credentials",
     ),
     "prod": SecretBundleTarget(
         name="prod",
@@ -348,10 +337,6 @@ SECRET_BUNDLE_TARGETS: dict[str, SecretBundleTarget] = {
         ),
         core_secret="remote-dev-prod-host-service-core",
         providers_secret="remote-dev-prod-host-service-providers",
-        legacy_management_secret="remote-dev-prod-hostctrl-management-key",
-        legacy_owner_secret="remote-dev-prod-accounts-owner-sub",
-        legacy_login_secret="remote-dev-prod-accounts-login-token-key",
-        legacy_aws_secret="remote-dev-prod-cloud-provider-aws-credentials",
     ),
 }
 
@@ -604,15 +589,15 @@ def plan_secret_bundle_pins(
     if mode == "publish":
         if core_selection is not None or providers_selection is not None:
             raise Fail("ordinary publish does not accept Secret version selections")
-        first_switch = current is None
-        core_choice = "latest" if first_switch else "keep"
-        providers_choice = "latest" if first_switch else "keep"
+        if current is None:
+            raise Fail("ordinary publish requires existing numeric Secret bundle pins")
+        core_choice = "keep"
+        providers_choice = "keep"
     elif mode == "promotion":
         if current is None:
             raise Fail("promotion requires an existing bundle-pinned Cloud Run revision")
         if core_selection is None or providers_selection is None:
             raise Fail("promotion requires core and providers selections")
-        first_switch = False
         core_choice = core_selection
         providers_choice = providers_selection
     else:
@@ -650,7 +635,6 @@ def plan_secret_bundle_pins(
             "selected": selected.providers,
             "changed": current is None or current.providers != selected.providers,
         },
-        "first_switch": first_switch,
     }
     if mode == "promotion":
         plan["image"] = cloud_run_image(service_json, "Cloud Run service template")
@@ -679,245 +663,6 @@ def json_dump(path: Path, value: Any) -> None:
 
 def json_load(path: Path) -> Any:
     return json.loads(path.read_text())
-
-
-def read_private_input(path: Path, context: str) -> str:
-    try:
-        size = path.stat().st_size
-    except OSError as error:
-        raise Fail(f"read {context} file metadata: {error}") from error
-    if size > SECRET_BUNDLE_MAX_BYTES:
-        raise Fail(f"{context} file exceeds {SECRET_BUNDLE_MAX_BYTES} bytes")
-    try:
-        value = path.read_text()
-    except (OSError, UnicodeError) as error:
-        raise Fail(f"read {context} file: {error}") from error
-    if not value.strip():
-        raise Fail(f"{context} must not be empty")
-    return value
-
-
-def require_exact_keys(value: Any, expected: set[str], context: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise Fail(f"{context} must be a TOML table")
-    unknown = set(value) - expected
-    missing = expected - set(value)
-    if unknown:
-        raise Fail(f"{context} has unknown fields")
-    if missing:
-        raise Fail(f"{context} is missing fields: {', '.join(sorted(missing))}")
-    return value
-
-
-def non_empty_secret_field(value: Any, context: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise Fail(f"{context} must be a non-empty string")
-    return value
-
-
-def validate_management_private_key(value: str, context: str) -> None:
-    with tempfile.TemporaryDirectory(prefix="secret-key-validation-") as raw_temp:
-        path = Path(raw_temp) / "management-key"
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "w") as output:
-            output.write(value)
-        try:
-            result = subprocess.run(
-                ["ssh-keygen", "-y", "-f", str(path)],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except OSError as error:
-            raise Fail(f"{context} validation tool is unavailable") from error
-        if result.returncode != 0:
-            raise Fail(f"{context} is invalid")
-
-
-def validate_secret_bundle_document(
-    kind: str,
-    deployment: str,
-    payload: bytes,
-    context: str,
-) -> dict[str, Any]:
-    secret_bundle_target(deployment)
-    if len(payload) > SECRET_BUNDLE_MAX_BYTES:
-        raise Fail(f"{context} exceeds {SECRET_BUNDLE_MAX_BYTES} bytes")
-    try:
-        document = tomllib.loads(payload.decode("utf-8"))
-    except (UnicodeError, tomllib.TOMLDecodeError) as error:
-        raise Fail(f"{context} is not valid UTF-8 TOML") from error
-    if kind == "core":
-        root = require_exact_keys(
-            document,
-            {"schema_version", "deployment", "management_ssh", "accounts"},
-            context,
-        )
-        management = require_exact_keys(
-            root["management_ssh"], {"private_key"}, f"{context}.management_ssh"
-        )
-        accounts = require_exact_keys(
-            root["accounts"],
-            {"owner_sub", "login_token_key"},
-            f"{context}.accounts",
-        )
-        private_key = non_empty_secret_field(
-            management["private_key"], f"{context}.management_ssh.private_key"
-        )
-        validate_management_private_key(
-            private_key, f"{context}.management_ssh.private_key"
-        )
-        non_empty_secret_field(accounts["owner_sub"], f"{context}.accounts.owner_sub")
-        non_empty_secret_field(
-            accounts["login_token_key"], f"{context}.accounts.login_token_key"
-        )
-        encoded_login_key = accounts["login_token_key"].strip()
-        try:
-            try:
-                decoded_login_key = base64.b64decode(encoded_login_key, validate=True)
-            except ValueError:
-                decoded_login_key = base64.urlsafe_b64decode(
-                    encoded_login_key + "=" * (-len(encoded_login_key) % 4)
-                )
-        except (ValueError, TypeError) as error:
-            raise Fail(f"{context}.accounts.login_token_key is not valid base64") from error
-        if len(decoded_login_key) != 32:
-            raise Fail(
-                f"{context}.accounts.login_token_key must decode to exactly 32 bytes"
-            )
-    elif kind == "providers":
-        root = require_exact_keys(
-            document, {"schema_version", "deployment", "aws"}, context
-        )
-        aws = root["aws"]
-        if not isinstance(aws, dict):
-            raise Fail(f"{context}.aws must be a TOML table")
-        allowed = {"access_key_id", "secret_access_key", "session_token"}
-        unknown = set(aws) - allowed
-        missing = {"access_key_id", "secret_access_key"} - set(aws)
-        if unknown:
-            raise Fail(f"{context}.aws has unknown fields")
-        if missing:
-            raise Fail(f"{context}.aws is missing fields: {', '.join(sorted(missing))}")
-        non_empty_secret_field(aws["access_key_id"], f"{context}.aws.access_key_id")
-        non_empty_secret_field(
-            aws["secret_access_key"], f"{context}.aws.secret_access_key"
-        )
-        if "session_token" in aws:
-            non_empty_secret_field(aws["session_token"], f"{context}.aws.session_token")
-    else:
-        raise Fail(f"unsupported bundle kind {kind!r}; expected core or providers")
-    if type(root["schema_version"]) is not int or root["schema_version"] != 1:
-        raise Fail(f"{context}.schema_version must equal 1")
-    if not isinstance(root["deployment"], str) or root["deployment"] != deployment:
-        raise Fail(f"{context}.deployment must equal {deployment}")
-    return document
-
-
-def toml_string(value: str) -> str:
-    return json.dumps(value, ensure_ascii=False)
-
-
-def render_core_bundle(
-    deployment: str,
-    management_private_key: str,
-    owner_sub: str,
-    login_token_key: str,
-) -> bytes:
-    return (
-        "schema_version = 1\n"
-        f"deployment = {toml_string(deployment)}\n\n"
-        "[management_ssh]\n"
-        f"private_key = {toml_string(management_private_key)}\n\n"
-        "[accounts]\n"
-        f"owner_sub = {toml_string(owner_sub)}\n"
-        f"login_token_key = {toml_string(login_token_key)}\n"
-    ).encode()
-
-
-def render_providers_bundle(deployment: str, aws: dict[str, Any]) -> bytes:
-    lines = [
-        "schema_version = 1",
-        f"deployment = {toml_string(deployment)}",
-        "",
-        "[aws]",
-        f"access_key_id = {toml_string(aws['access_key_id'])}",
-        f"secret_access_key = {toml_string(aws['secret_access_key'])}",
-    ]
-    if "session_token" in aws:
-        lines.append(f"session_token = {toml_string(aws['session_token'])}")
-    return ("\n".join(lines) + "\n").encode()
-
-
-def write_private_file(path: Path, payload: bytes) -> None:
-    if path.exists():
-        raise Fail(f"refusing to overwrite existing output file {path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "wb") as output:
-            output.write(payload)
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, path)
-    except OSError as error:
-        try:
-            temporary.unlink()
-        except FileNotFoundError:
-            pass
-        raise Fail(f"write private output file {path}: {error}") from error
-
-
-def migrate_legacy_secret_files(
-    deployment: str,
-    management_key_path: Path,
-    owner_sub_path: Path,
-    login_token_key_path: Path,
-    aws_credentials_path: Path,
-    core_output: Path,
-    providers_output: Path,
-) -> None:
-    secret_bundle_target(deployment)
-    management_key = read_private_input(management_key_path, "management SSH key")
-    owner_sub = read_private_input(owner_sub_path, "Accounts owner sub").strip()
-    login_token_key = read_private_input(login_token_key_path, "Accounts login token key").strip()
-    raw_aws = read_private_input(aws_credentials_path, "AWS credentials")
-    try:
-        aws = json.loads(raw_aws)
-    except json.JSONDecodeError as error:
-        raise Fail(f"AWS credentials file is not valid JSON: {error}") from error
-    if not isinstance(aws, dict):
-        raise Fail("AWS credentials file must contain a JSON object")
-    allowed = {"access_key_id", "secret_access_key", "session_token"}
-    if set(aws) - allowed:
-        raise Fail("AWS credentials file contains unknown fields")
-    for field in ("access_key_id", "secret_access_key"):
-        if field not in aws:
-            raise Fail(f"AWS credentials file is missing {field}")
-        non_empty_secret_field(aws[field], f"AWS credentials {field}")
-    if "session_token" in aws:
-        non_empty_secret_field(aws["session_token"], "AWS credentials session_token")
-    core = render_core_bundle(deployment, management_key, owner_sub, login_token_key)
-    providers = render_providers_bundle(deployment, aws)
-    validate_secret_bundle_document("core", deployment, core, "generated core bundle")
-    validate_secret_bundle_document(
-        "providers", deployment, providers, "generated providers bundle"
-    )
-    if core_output == providers_output:
-        raise Fail("core and providers outputs must be different files")
-    if core_output.exists() or providers_output.exists():
-        raise Fail("refusing to overwrite an existing bundle output")
-    try:
-        write_private_file(core_output, core)
-        write_private_file(providers_output, providers)
-    except Exception:
-        for output in (core_output, providers_output):
-            try:
-                output.unlink()
-            except FileNotFoundError:
-                pass
-        raise
 
 
 def run(args: list[str], cwd: Path | None = None, capture: bool = False) -> str:
@@ -2728,84 +2473,6 @@ def guard_secret_version_lifecycle(
         )
 
 
-def service_traffic_percentages(service_json: Any) -> dict[str, float]:
-    if not isinstance(service_json, dict):
-        raise Fail("Cloud Run service JSON must be an object")
-    status = service_json.get("status")
-    sources: list[Any] = []
-    if isinstance(status, dict):
-        sources.extend([status.get("traffic"), status.get("trafficStatuses")])
-    sources.extend([service_json.get("traffic"), service_json.get("trafficStatuses")])
-    traffic = next((source for source in sources if source is not None), None)
-    if not isinstance(traffic, list):
-        raise Fail("Cloud Run service JSON is missing traffic status")
-    percentages: dict[str, float] = {}
-    for index, target in enumerate(traffic):
-        if not isinstance(target, dict):
-            raise Fail(f"Cloud Run traffic[{index}] must be an object")
-        revision = None
-        for field in CLOUD_RUN_TRAFFIC_REVISION_FIELDS:
-            revision = cloud_run_revision_name_from_ref(target.get(field))
-            if revision is not None:
-                break
-        if revision is None:
-            continue
-        percent = target.get("percent", target.get("trafficPercent", 0))
-        if not isinstance(percent, int | float) or percent < 0 or percent > 100:
-            raise Fail(f"Cloud Run traffic[{index}] has invalid percent")
-        percentages[revision] = percentages.get(revision, 0) + float(percent)
-    if not percentages:
-        raise Fail("Cloud Run service has no revision traffic targets")
-    return percentages
-
-
-def plan_secret_bundle_finalize(
-    target_name: str,
-    service_json: Any,
-    revisions_json: Any,
-) -> dict[str, Any]:
-    target = secret_bundle_target(target_name)
-    revisions = parse_revision_resources(revisions_json, "Cloud Run retained revisions")
-    by_name = dict(revisions)
-    traffic = service_traffic_percentages(service_json)
-    serving = [name for name, percent in traffic.items() if percent > 0]
-    if len(serving) != 1 or traffic[serving[0]] != 100:
-        raise Fail("finalize requires exactly one Cloud Run revision serving 100 percent traffic")
-    serving_name = serving[0]
-    serving_revision = by_name.get(serving_name)
-    if serving_revision is None:
-        raise Fail(f"100 percent traffic revision {serving_name} is missing from retained revisions")
-    serving_pins = optional_bundle_pins(
-        serving_revision, f"Cloud Run revision {serving_name}"
-    )
-    if serving_pins is None:
-        raise Fail("100 percent traffic revision is not bundle-pinned")
-    legacy: list[str] = []
-    pinned: list[str] = []
-    for name, revision in revisions:
-        pins = optional_bundle_pins(revision, f"Cloud Run revision {name}")
-        if pins is None:
-            legacy.append(name)
-        else:
-            pinned.append(name)
-    return {
-        "schema_version": 1,
-        "target": target.name,
-        "project": target.project,
-        "serving_revision": serving_name,
-        "core_version": serving_pins.core,
-        "providers_version": serving_pins.providers,
-        "delete_legacy_revisions": sorted(legacy),
-        "retained_bundle_revisions": sorted(pinned),
-        "delete_legacy_secrets": [
-            target.legacy_management_secret,
-            target.legacy_owner_secret,
-            target.legacy_login_secret,
-            target.legacy_aws_secret,
-        ],
-    }
-
-
 def add_protected_revision(
     protected: dict[str, set[str]],
     name: str | None,
@@ -3011,29 +2678,6 @@ def cmd_cleanup_cloud_run_revisions(args: argparse.Namespace) -> None:
     print(f"deleted_revisions={len(plan.delete_revisions)}")
 
 
-def cmd_validate_secret_bundle(args: argparse.Namespace) -> None:
-    path = Path(args.file)
-    try:
-        payload = path.read_bytes()
-    except OSError as error:
-        raise Fail(f"read bundle file {path}: {error}") from error
-    validate_secret_bundle_document(args.kind, args.target, payload, f"{args.kind} bundle")
-    print(f"validated {args.kind} bundle schema_version=1 deployment={args.target}")
-
-
-def cmd_migrate_secret_bundles(args: argparse.Namespace) -> None:
-    migrate_legacy_secret_files(
-        args.target,
-        Path(args.management_key_file),
-        Path(args.owner_sub_file),
-        Path(args.login_token_key_file),
-        Path(args.aws_credentials_file),
-        Path(args.core_output),
-        Path(args.providers_output),
-    )
-    print(f"generated core and providers bundles for deployment={args.target}")
-
-
 def cmd_plan_secret_pins(args: argparse.Namespace) -> None:
     plan = plan_secret_bundle_pins(
         args.target,
@@ -3048,8 +2692,7 @@ def cmd_plan_secret_pins(args: argparse.Namespace) -> None:
     print(
         "planned Secret bundle pins "
         f"target={args.target} mode={args.mode} "
-        f"core={plan['core']['selected']} providers={plan['providers']['selected']} "
-        f"first_switch={str(plan['first_switch']).lower()}"
+        f"core={plan['core']['selected']} providers={plan['providers']['selected']}"
     )
 
 
@@ -3063,20 +2706,6 @@ def cmd_guard_secret_version_lifecycle(args: argparse.Namespace) -> None:
     print(
         "Secret version lifecycle guard passed "
         f"target={args.target} bundle={args.bundle} version={args.version}"
-    )
-
-
-def cmd_plan_secret_finalize(args: argparse.Namespace) -> None:
-    plan = plan_secret_bundle_finalize(
-        args.target,
-        json_load(Path(args.service_json)),
-        json_load(Path(args.revisions_json)),
-    )
-    json_dump(Path(args.output), plan)
-    print(
-        "planned Secret bundle finalize "
-        f"target={args.target} serving_revision={plan['serving_revision']} "
-        f"legacy_revisions={len(plan['delete_legacy_revisions'])}"
     )
 
 
@@ -3785,9 +3414,7 @@ def assert_workflows(repo_root: Path) -> None:
     if 'gh run delete "$GITHUB_RUN_ID"' in test:
         raise Fail("publish-test must not try to delete its active run")
     expected_secret_workflows = {
-        f"{operation}-secret-bundles-{target}"
-        for operation in ("migrate", "promote", "finalize")
-        for target in ("test", "prod")
+        f"promote-secret-bundles-{target}" for target in ("test", "prod")
     } | {
         f"secret-version-lifecycle-{target}" for target in ("test", "prod")
     }
@@ -3831,37 +3458,12 @@ def assert_workflows(repo_root: Path) -> None:
                 )
             ):
                 raise Fail(f"{name} must fail closed on the protected prod project")
-        for operation in ("migrate", "promote", "finalize"):
-            name = f"{operation}-secret-bundles-{target}"
-            workflow = secret_workflows[name]
-            for marker in (runtime, core, providers):
-                if marker not in workflow:
-                    raise Fail(f"{name} bundle contract is missing {marker!r}")
-
-        migration = secret_workflows[f"migrate-secret-bundles-{target}"]
-        for marker in (
-            "secret-bundle-migration.XXXXXX",
-            "trap 'rm -rf \"$TMP_DIR\"' EXIT",
-            "--out-file \"$TMP_DIR/$FILE\"",
-            "migrate-secret-bundles",
-            "validate-secret-bundle",
-            "gcloud secrets versions add",
-        ):
-            if marker not in migration:
-                raise Fail(f"{target} migration is missing {marker!r}")
-        for forbidden in ("upload-artifact", "--data-file=-", "cat $TMP_DIR", "tee "):
-            if forbidden in migration:
-                raise Fail(f"{target} migration may expose Secret payloads via {forbidden!r}")
-        if migration.count("gcloud secrets versions access") != 1:
-            raise Fail(
-                f"{target} migration may access only the four legacy payloads in its fixed loop"
-            )
-        if 'gcloud secrets versions describe "$CORE_VERSION"' not in migration or (
-            'gcloud secrets versions describe "$PROVIDERS_VERSION"' not in migration
-        ):
-            raise Fail(f"{target} migration must verify both created versions through metadata")
-
         promotion = secret_workflows[f"promote-secret-bundles-{target}"]
+        for marker in (runtime, core, providers):
+            if marker not in promotion:
+                raise Fail(
+                    f"promote-secret-bundles-{target} bundle contract is missing {marker!r}"
+                )
         for marker in (
             "--mode promotion",
             '--core "$CORE_SELECTION"',
@@ -3896,45 +3498,6 @@ def assert_workflows(repo_root: Path) -> None:
                 raise Fail(f"{target} lifecycle workflow is missing {marker!r}")
             if marker.startswith("gcloud secrets") and guard_index > lifecycle.index(marker):
                 raise Fail(f"{target} lifecycle action must follow the retained revision guard")
-
-        finalize = secret_workflows[f"finalize-secret-bundles-{target}"]
-        for marker in (
-            "plan-secret-finalize",
-            "gcloud run revisions delete",
-            "gcloud secrets delete",
-            "gcloud secrets versions list",
-            'for SECRET in "$CORE_SECRET" "$PROVIDERS_SECRET"; do',
-            '.state == "ENABLED"',
-            "/versions/[1-9][0-9]*$",
-            ".refresh.failed == 0",
-            ".refresh.refreshed >= 1",
-            '.provider == "aws"',
-            '.result == "refreshed"',
-            ".active == true",
-        ):
-            if marker not in finalize:
-                raise Fail(f"{target} finalize workflow is missing {marker!r}")
-        if target == "test":
-            for marker in (
-                "confirm_gcp_audit",
-                "source-revisions-firestore-compute-iam-audited",
-                "remote-dev-test-cloud-provider-gcp-credentials",
-                "Retire separately audited legacy GCP provider Secret",
-            ):
-                if marker not in finalize:
-                    raise Fail(f"test finalize is missing separately audited GCP retirement marker {marker!r}")
-            if finalize.index("gcloud run revisions delete") > finalize.index(
-                "Retire separately audited legacy GCP provider Secret"
-            ):
-                raise Fail("test finalize must delete legacy revisions before the GCP provider Secret")
-            if "gcloud projects get-iam-policy" in finalize:
-                raise Fail("test finalize must not require unavailable project IAM read authority")
-        elif "cloud-provider-gcp-credentials" in finalize:
-            raise Fail("prod finalize must not name the test-only GCP provider Secret")
-        if "gcloud secrets list" in finalize or "gcloud secrets get-iam-policy" in finalize:
-            raise Fail(f"{target} finalize must use only fixed bundle version metadata")
-        if target == "prod" and "user:Adoo@outlook.com" not in finalize:
-            raise Fail("prod finalize must preserve the permanent Owner readback")
     assert_test_cleanup_workflow(cleanup)
     assert_successful_test_run_delete_workflow(delete_successful_test_run)
     assert_test_deployment_verification_workflow(verify_test)
@@ -4287,20 +3850,20 @@ def assert_secret_bundle_models() -> None:
 
     image = "us-west1-docker.pkg.dev/p/r/i@sha256:" + "a" * 64
     artifact = "github:M-Adoo/remote-dev-bin/" + "b" * 40
-    legacy = fake_bundle_cloud_run_resource(
-        "svc-legacy", None, None, image=image, artifact_ref=artifact
+    unpinned = fake_bundle_cloud_run_resource(
+        "svc-unpinned", None, None, image=image, artifact_ref=artifact
     )
     core_versions = fake_secret_versions((1, "ENABLED"), (10, "ENABLED"))
     providers_versions = fake_secret_versions((2, "ENABLED"), (9, "ENABLED"))
-    first = plan_secret_bundle_pins(
-        "test", "publish", legacy, core_versions, providers_versions
-    )
-    if (
-        first["core"]["selected"],
-        first["providers"]["selected"],
-        first["first_switch"],
-    ) != ("10", "9", True):
-        raise Fail("first bundle-aware publish did not resolve latest enabled numeric pins")
+    try:
+        plan_secret_bundle_pins(
+            "test", "publish", unpinned, core_versions, providers_versions
+        )
+    except Fail as error:
+        if "existing numeric Secret bundle pins" not in str(error):
+            raise
+    else:
+        raise Fail("ordinary publish accepted an unpinned Cloud Run revision")
 
     current = fake_bundle_cloud_run_resource(
         "svc-current", "1", "2", image=image, artifact_ref=artifact
@@ -4308,11 +3871,10 @@ def assert_secret_bundle_models() -> None:
     ordinary = plan_secret_bundle_pins(
         "test", "publish", current, core_versions, providers_versions
     )
-    if (
-        ordinary["core"]["selected"],
-        ordinary["providers"]["selected"],
-        ordinary["first_switch"],
-    ) != ("1", "2", False):
+    if (ordinary["core"]["selected"], ordinary["providers"]["selected"]) != (
+        "1",
+        "2",
+    ):
         raise Fail("ordinary publish must preserve current Secret pins")
 
     provider_promotion = plan_secret_bundle_pins(
@@ -4361,10 +3923,10 @@ def assert_secret_bundle_models() -> None:
     else:
         raise Fail("no-op promotion must fail")
 
-    legacy_revision = fake_bundle_cloud_run_resource("svc-legacy", None, None)
+    unpinned_revision = fake_bundle_cloud_run_resource("svc-unpinned", None, None)
     old_revision = fake_bundle_cloud_run_resource("svc-old", "1", "2")
     new_revision = fake_bundle_cloud_run_resource("svc-new", "10", "9")
-    revisions = [legacy_revision, old_revision, new_revision]
+    revisions = [unpinned_revision, old_revision, new_revision]
     if revisions_referencing_secret_version("test", "core", "1", revisions) != ("svc-old",):
         raise Fail("lifecycle scan did not find a retained Secret version reference")
     try:
@@ -4375,112 +3937,6 @@ def assert_secret_bundle_models() -> None:
     else:
         raise Fail("lifecycle guard accepted a referenced Secret version")
     guard_secret_version_lifecycle("test", "providers", "8", revisions)
-
-    service = {
-        "status": {"traffic": [{"revisionName": "svc-new", "percent": 100}]}
-    }
-    finalize = plan_secret_bundle_finalize("test", service, revisions)
-    if finalize["delete_legacy_revisions"] != ["svc-legacy"]:
-        raise Fail("finalize must select only unpinned legacy revisions")
-    if finalize["serving_revision"] != "svc-new":
-        raise Fail("finalize did not preserve the 100 percent bundle-pinned revision")
-    split = {
-        "status": {
-            "traffic": [
-                {"revisionName": "svc-new", "percent": 90},
-                {"revisionName": "svc-old", "percent": 10},
-            ]
-        }
-    }
-    try:
-        plan_secret_bundle_finalize("test", split, revisions)
-    except Fail as error:
-        if "100 percent" not in str(error):
-            raise
-    else:
-        raise Fail("finalize accepted split traffic")
-
-
-def assert_secret_bundle_migration() -> None:
-    with tempfile.TemporaryDirectory(prefix="secret-bundle-test-key-") as key_temp:
-        key_path = Path(key_temp) / "management"
-        result = subprocess.run(
-            ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key_path)],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        if result.returncode != 0:
-            raise Fail("failed to create Secret bundle self-test management key")
-        private_key = key_path.read_text()
-    sentinels = {
-        "private": private_key,
-        "owner": "owner-sentinel",
-        "login": base64.b64encode(b"l" * 32).decode(),
-        "access": "AKIA0123456789ABCD",
-        "secret": "aws-secret-sentinel",
-        "session": "aws-session-sentinel",
-    }
-    with tempfile.TemporaryDirectory(prefix="secret-bundle-migration-") as raw_temp:
-        root = Path(raw_temp)
-        management = root / "management"
-        owner = root / "owner"
-        login = root / "login"
-        aws = root / "aws"
-        management.write_text(sentinels["private"])
-        owner.write_text(sentinels["owner"])
-        login.write_text(sentinels["login"])
-        aws.write_text(
-            json.dumps(
-                {
-                    "access_key_id": sentinels["access"],
-                    "secret_access_key": sentinels["secret"],
-                    "session_token": sentinels["session"],
-                }
-            )
-        )
-        core = root / "out/core.toml"
-        providers = root / "out/providers.toml"
-        migrate_legacy_secret_files(
-            "test", management, owner, login, aws, core, providers
-        )
-        core_doc = validate_secret_bundle_document(
-            "core", "test", core.read_bytes(), "migrated core"
-        )
-        providers_doc = validate_secret_bundle_document(
-            "providers", "test", providers.read_bytes(), "migrated providers"
-        )
-        if core_doc["management_ssh"]["private_key"] != sentinels["private"]:
-            raise Fail("migration did not preserve multiline management key")
-        if providers_doc["aws"]["session_token"] != sentinels["session"]:
-            raise Fail("migration did not preserve AWS session token")
-        if (core.stat().st_mode & 0o777) != 0o600 or (providers.stat().st_mode & 0o777) != 0o600:
-            raise Fail("migration outputs must have mode 0600")
-        try:
-            migrate_legacy_secret_files(
-                "test", management, owner, login, aws, core, providers
-            )
-        except Fail as error:
-            message = str(error)
-            if any(secret in message for secret in sentinels.values()):
-                raise Fail("migration error exposed a Secret payload") from error
-        else:
-            raise Fail("migration must refuse existing outputs")
-    redaction_sentinel = "toml-payload-must-stay-redacted"
-    for payload in (
-        f"schema_version = 1\ndeployment = \"test\"\n{redaction_sentinel} = \"value\"\n".encode(),
-        f"schema_version = 1\ndeployment = \"test\"\n[aws]\n{redaction_sentinel}".encode(),
-    ):
-        try:
-            validate_secret_bundle_document(
-                "providers", "test", payload, "candidate providers bundle"
-            )
-        except Fail as error:
-            if redaction_sentinel in str(error):
-                raise Fail("Secret bundle validation error exposed TOML source content") from error
-        else:
-            raise Fail("invalid redaction fixture unexpectedly passed validation")
-
 
 def cmd_self_test(_: argparse.Namespace) -> None:
     repo_root = Path(__file__).resolve().parents[1]
@@ -4699,7 +4155,6 @@ def cmd_self_test(_: argparse.Namespace) -> None:
         raise Fail("unexpected object-shaped nix path-info parsing")
     assert_workflows(repo_root)
     assert_secret_bundle_models()
-    assert_secret_bundle_migration()
     assert_cloud_run_revision_cleanup_model()
     assert_github_test_deployment_cleanup_model()
     assert_test_branch_cleanup_without_git_identity()
@@ -4941,22 +4396,6 @@ def parser() -> argparse.ArgumentParser:
     cr.add_argument("--keep", type=int, default=20)
     cr.set_defaults(func=cmd_cleanup_cloud_run_revisions)
 
-    validate_bundle = sub.add_parser("validate-secret-bundle")
-    validate_bundle.add_argument("--target", choices=["test", "prod"], required=True)
-    validate_bundle.add_argument("--kind", choices=["core", "providers"], required=True)
-    validate_bundle.add_argument("--file", required=True)
-    validate_bundle.set_defaults(func=cmd_validate_secret_bundle)
-
-    migrate_bundles = sub.add_parser("migrate-secret-bundles")
-    migrate_bundles.add_argument("--target", choices=["test", "prod"], required=True)
-    migrate_bundles.add_argument("--management-key-file", required=True)
-    migrate_bundles.add_argument("--owner-sub-file", required=True)
-    migrate_bundles.add_argument("--login-token-key-file", required=True)
-    migrate_bundles.add_argument("--aws-credentials-file", required=True)
-    migrate_bundles.add_argument("--core-output", required=True)
-    migrate_bundles.add_argument("--providers-output", required=True)
-    migrate_bundles.set_defaults(func=cmd_migrate_secret_bundles)
-
     pins = sub.add_parser("plan-secret-pins")
     pins.add_argument("--target", choices=["test", "prod"], required=True)
     pins.add_argument("--mode", choices=["publish", "promotion"], required=True)
@@ -4974,13 +4413,6 @@ def parser() -> argparse.ArgumentParser:
     lifecycle.add_argument("--version", required=True)
     lifecycle.add_argument("--revisions-json", required=True)
     lifecycle.set_defaults(func=cmd_guard_secret_version_lifecycle)
-
-    finalize = sub.add_parser("plan-secret-finalize")
-    finalize.add_argument("--target", choices=["test", "prod"], required=True)
-    finalize.add_argument("--service-json", required=True)
-    finalize.add_argument("--revisions-json", required=True)
-    finalize.add_argument("--output", required=True)
-    finalize.set_defaults(func=cmd_plan_secret_finalize)
 
     gd = sub.add_parser("cleanup-github-test-deployments")
     gd.add_argument("--repo", required=True)
