@@ -407,7 +407,6 @@ jobs:
           {
             echo "core_version=$(jq -r '.core.selected' "$TMP_DIR/plan.json")"
             echo "providers_version=$(jq -r '.providers.selected' "$TMP_DIR/plan.json")"
-            echo "first_switch=$(jq -r '.first_switch' "$TMP_DIR/plan.json")"
           } >> "$GITHUB_OUTPUT"
 
       - name: Verify production async infrastructure

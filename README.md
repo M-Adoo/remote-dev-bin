@@ -68,11 +68,18 @@ build outputs and bootstrap resources but no private repository token. Cloud
 authority, signing authority, artifact-branch write authority, and deployment
 remain in the publish job.
 
-Before a production deployment, the protected publish job checks that the
-Accounts owner and login-token-key Secrets exist, have enabled versions, and
-grant `secretAccessor` only as configured to the exact HostService runtime
-service account. The publisher reads metadata and IAM policy only; it never
-reads Secret payloads or creates production Secrets.
+Before a deployment, the publisher preserves the serving revision's numeric
+core and providers Secret bundle pins and verifies each selected version plus
+the exact resource-level runtime and deployer IAM. An ordinary publish fails if
+the serving revision is not already bundle-pinned; only the protected promotion
+workflows may select a different enabled version. The publisher reads metadata
+and IAM policy only; it never reads Secret payloads or creates Secrets.
+
+The one-time legacy Secret migration and finalization workflows were removed
+after both environments completed the hard cut. Ongoing Secret operations are
+limited to promotion or rollback by numeric version and lifecycle actions that
+refuse to disable or destroy a version referenced by any retained Cloud Run
+revision.
 
 Production Artifact Registry cleanup is defined in
 `infra/host-service-artifact-cleanup-policies.json`. It deletes `host-service`

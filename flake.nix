@@ -13,7 +13,7 @@
       in
       {
         checks.publisher-self-test = pkgs.runCommand "remote-dev-bin-publisher-self-test"
-          { nativeBuildInputs = [ pkgs.python3 ]; }
+          { nativeBuildInputs = [ pkgs.git pkgs.python3 ]; }
           ''
             python3 ${self}/scripts/publish.py self-test
             touch $out
