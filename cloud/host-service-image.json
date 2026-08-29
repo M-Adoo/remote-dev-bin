@@ -1,31 +1,31 @@
 {
   "build": {
-    "generated_at": "2026-08-22T09:14:44Z",
+    "generated_at": "2026-08-28T13:59:18Z",
     "kind": "host-service-image",
     "platform": "linux/amd64",
     "schema_version": 1,
-    "sha256": "77689378c9d796328f84116c3a1be5a0e7a682be5ebd3d274a31d555c32c4631",
-    "source_ref": "remote-dev-bin-test/db4ca718f84a-1787389646",
+    "sha256": "8099d5a57ba3c705f57d92056e0a29f94705f74e0247f88987244cec693ec10b",
+    "source_ref": "remote-dev-bin-test/f61db2b74299-1787925061",
     "source_repo": "M-Adoo/remote-dev",
-    "source_sha": "db4ca718f84a1a3ee83762be87f6ddb640de4ada",
+    "source_sha": "f61db2b7429939d202683a872793f9d2d71bde06",
     "tarball": "host-service-linux-amd64.tar.zst",
     "target": "release"
   },
   "cloud": "prod",
-  "deployed_image": "us-west1-docker.pkg.dev/remote-dev-host-prod/remote-dev/host-service@sha256:5894dee551126d4c43c0a3a23feea8a9e9d6f3b1d6ae998ccb9f4122bdfe7c44",
+  "deployed_image": "us-west1-docker.pkg.dev/remote-dev-host-prod/remote-dev/host-service@sha256:4716ff3666f95f6f339c3b034a54c2639176045d4e121433175b6c0ed65b5124",
   "deployment": {
     "platform": "cloud-run",
     "region": "us-west1",
     "service": "remote-dev-host-service"
   },
-  "digest": "sha256:5894dee551126d4c43c0a3a23feea8a9e9d6f3b1d6ae998ccb9f4122bdfe7c44",
-  "generated_at": "2026-08-22T09:31:37Z",
-  "image": "us-west1-docker.pkg.dev/remote-dev-host-prod/remote-dev/host-service:prod-db4ca718f84a",
+  "digest": "sha256:4716ff3666f95f6f339c3b034a54c2639176045d4e121433175b6c0ed65b5124",
+  "generated_at": "2026-08-29T13:41:26Z",
+  "image": "us-west1-docker.pkg.dev/remote-dev-host-prod/remote-dev/host-service:prod-f61db2b74299",
   "project": "remote-dev-host-prod",
   "schema_version": 1,
-  "source_ref": "remote-dev-bin-test/db4ca718f84a-1787389646",
+  "source_ref": "remote-dev-bin-test/f61db2b74299-1787925061",
   "source_repo": "M-Adoo/remote-dev",
-  "source_sha": "db4ca718f84a1a3ee83762be87f6ddb640de4ada",
+  "source_sha": "f61db2b7429939d202683a872793f9d2d71bde06",
   "target": "release",
-  "workflow_run_id": "32564097546"
+  "workflow_run_id": "33177301899"
 }

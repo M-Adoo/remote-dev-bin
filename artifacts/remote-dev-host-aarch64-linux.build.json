@@ -5,10 +5,10 @@
   "firstboot_schema_version": 5,
   "kind": "host-bundle",
   "schema_version": 1,
-  "sha256": "1af4feb1e743b16082dfc99215b982967c49f7c1b6e50fcd0bfcd288a3056782",
-  "source_ref": "remote-dev-bin-test/db4ca718f84a-1787389646",
+  "sha256": "49f3755ae141ed7e3192cf33e2ec98ff084d956c7efb1d2a033e60c501265c8e",
+  "source_ref": "remote-dev-bin-test/f61db2b74299-1787925061",
   "source_repo": "M-Adoo/remote-dev",
-  "source_sha": "db4ca718f84a1a3ee83762be87f6ddb640de4ada",
+  "source_sha": "f61db2b7429939d202683a872793f9d2d71bde06",
   "system": "aarch64-linux",
   "tarball": "artifacts/remote-dev-host-aarch64-linux.tar.gz",
   "target": "release"
