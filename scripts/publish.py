@@ -3902,9 +3902,10 @@ def assert_workflows(repo_root: Path) -> None:
             "plan-secret-finalize",
             "gcloud run revisions delete",
             "gcloud secrets delete",
-            "user:Adoo@outlook.com",
-            "roles/secretmanager.secretAccessor",
-            "roles/secretmanager.secretVersionManager",
+            "gcloud secrets versions list",
+            'for SECRET in "$CORE_SECRET" "$PROVIDERS_SECRET"; do',
+            '.state == "ENABLED"',
+            "/versions/[1-9][0-9]*$",
             ".refresh.failed == 0",
             ".refresh.refreshed >= 1",
             '.provider == "aws"',
@@ -3926,8 +3927,14 @@ def assert_workflows(repo_root: Path) -> None:
                 "Retire separately audited legacy GCP provider Secret"
             ):
                 raise Fail("test finalize must delete legacy revisions before the GCP provider Secret")
+            if "gcloud projects get-iam-policy" in finalize:
+                raise Fail("test finalize must not require unavailable project IAM read authority")
         elif "cloud-provider-gcp-credentials" in finalize:
             raise Fail("prod finalize must not name the test-only GCP provider Secret")
+        if "gcloud secrets list" in finalize or "gcloud secrets get-iam-policy" in finalize:
+            raise Fail(f"{target} finalize must use only fixed bundle version metadata")
+        if target == "prod" and "user:Adoo@outlook.com" not in finalize:
+            raise Fail("prod finalize must preserve the permanent Owner readback")
     assert_test_cleanup_workflow(cleanup)
     assert_successful_test_run_delete_workflow(delete_successful_test_run)
     assert_test_deployment_verification_workflow(verify_test)
