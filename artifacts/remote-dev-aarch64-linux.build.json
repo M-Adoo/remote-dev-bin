@@ -1,0 +1,22 @@
+{
+  "arch": "aarch64",
+  "artifact": "remote-dev-aarch64-linux",
+  "binary": "remote-dev",
+  "bundle_files": [
+    "flake.nix",
+    "flake.lock",
+    "bin/remote-dev"
+  ],
+  "cargo_target": "aarch64-unknown-linux-musl",
+  "generated_at": "2026-08-28T12:49:39Z",
+  "kind": "cli-bundle",
+  "package": "remote-dev",
+  "schema_version": 2,
+  "sha256": "25184202f42d2f427789609f9a7f56f3fbd52a1e23b74124679236b4cb30f356",
+  "source_ref": "remote-dev-bin-test/f61db2b74299-1787921195",
+  "source_repo": "M-Adoo/remote-dev",
+  "source_sha": "f61db2b7429939d202683a872793f9d2d71bde06",
+  "system": "aarch64-linux",
+  "tarball": "artifacts/remote-dev-aarch64-linux.tar.gz",
+  "target": "host-service-test"
+}
